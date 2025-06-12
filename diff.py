@@ -14,12 +14,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="Find the difference between two requirements.txt files or between a file and stdin. "
                     "By default, outputs packages in file2 (or stdin) not in file1. "
-                    "With --symmetric, outputs packages in either file but not both."
+                    "With --symmetric, outputs packages in either file but not both. "
+                    "Use -o to write to a file (overwrites by default; use -a to append)."
     )
     parser.add_argument("file1", help="First requirements file (base)")
     parser.add_argument("file2", nargs='?', help="Second requirements file (to compare). If omitted, reads from stdin.")
     parser.add_argument("-o", "--output", help="Output file to write the difference", required=False)
     parser.add_argument("-s", "--symmetric", action="store_true", help="Compute symmetric difference (packages in either file but not both)")
+    parser.add_argument("-a", "--append", action="store_true", help="Append to the output file instead of overwriting (requires -o)")
     args = parser.parse_args()
 
     reqs1 = read_requirements(args.file1)
@@ -35,11 +37,16 @@ def main():
         diff = sorted(reqs2 - reqs1)
 
     if args.output:
-        with open(args.output, 'w') as out:
+        # Use 'a' mode for append if --append is set, otherwise 'w' for overwrite
+        mode = 'a' if args.append else 'w'
+        with open(args.output, mode) as out:
             for pkg in diff:
                 out.write(pkg + '\n')
-        print(f"{'Symmetric difference' if args.symmetric else 'Difference'} written to {args.output}")
+        action = "appended to" if args.append else "written to"
+        print(f"{'Symmetric difference' if args.symmetric else 'Difference'} {action} {args.output}")
     else:
+        if args.append:
+            print("Warning: --append ignored because no output file (-o) was specified.")
         for pkg in diff:
             print(pkg)
 
