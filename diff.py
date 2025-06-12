@@ -12,11 +12,14 @@ def read_from_stdin():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find the difference between two requirements.txt files or between a file and stdin."
+        description="Find the difference between two requirements.txt files or between a file and stdin. "
+                    "By default, outputs packages in file2 (or stdin) not in file1. "
+                    "With --symmetric, outputs packages in either file but not both."
     )
     parser.add_argument("file1", help="First requirements file (base)")
     parser.add_argument("file2", nargs='?', help="Second requirements file (to compare). If omitted, reads from stdin.")
     parser.add_argument("-o", "--output", help="Output file to write the difference", required=False)
+    parser.add_argument("-s", "--symmetric", action="store_true", help="Compute symmetric difference (packages in either file but not both)")
     args = parser.parse_args()
 
     reqs1 = read_requirements(args.file1)
@@ -25,13 +28,17 @@ def main():
     else:
         reqs2 = read_from_stdin()
 
-    diff = sorted(reqs2 - reqs1)
+    # Compute difference based on symmetric flag
+    if args.symmetric:
+        diff = sorted(reqs1.symmetric_difference(reqs2))
+    else:
+        diff = sorted(reqs2 - reqs1)
 
     if args.output:
         with open(args.output, 'w') as out:
             for pkg in diff:
                 out.write(pkg + '\n')
-        print(f"Difference written to {args.output}")
+        print(f"{'Symmetric difference' if args.symmetric else 'Difference'} written to {args.output}")
     else:
         for pkg in diff:
             print(pkg)
