@@ -58,7 +58,7 @@ def print_tree(start_path, prefix="", show_hidden=True, dirs_only=False):
 def main():
     parser = argparse.ArgumentParser(description="Print directory tree in Markdown-like style.")
     parser.add_argument("directory", nargs="?", default=".", help="Directory to list (default: current directory)")
-    parser.add_argument("--show-hidden", action="store_true", help="Include hidden files and folders")
+    parser.add_argument("-a", "--show-hidden", action="store_true", help="Include hidden files and folders")
     parser.add_argument("-d", "--dirs-only", action="store_true", help="List directories only")
     args = parser.parse_args()
     print(args.directory)
