@@ -10,7 +10,7 @@
  * @brief Recursively counts files in a directory up to a specified depth.
  *
  * @param base_path The path to the directory to scan.
- * @param current_depth The depth of the current call (1 for the start).
+ * @param current_depth The depth of the current call (1 for the start)#!/usr/bin/env python3
  * @param max_depth The maximum depth to recurse. 0 = unlimited.
  * @return The total count of regular files, or -1 on error.
  */
