@@ -120,7 +120,6 @@ int main(int argc, char *argv[]) {
   // --- Default values ---
   char *directory = config.directory;
   int max_depth = config.depth; // Default depth is 1
-  char cwd_buffer[PATH_MAX];
 
   // debug(argc, argv, defs_count, config); // DEBUGGING
 
