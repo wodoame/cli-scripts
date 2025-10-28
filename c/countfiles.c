@@ -1,3 +1,4 @@
+#include "../parser/argparser.h"
 #include <dirent.h>   // For opendir, readdir, closedir, struct dirent
 #include <limits.h>   // For PATH_MAX (max path length)
 #include <stdio.h>    // For printf, snprintf, fprintf, stderr
@@ -5,7 +6,6 @@
 #include <string.h>   // For strcmp
 #include <sys/stat.h> // For lstat, struct stat, S_ISREG, S_ISDIR
 #include <unistd.h>   // For getcwd
-
 /**
  * @brief Recursively counts files in a directory up to a specified depth.
  *
@@ -82,75 +82,49 @@ long long count_files(const char *base_path, int current_depth, int max_depth) {
   return total_files;
 }
 
-int main(int argc, char *argv[]) {
+typedef struct {
+  char *directory;
+  int depth;
+} AppConfig;
+
+static void debug(int argc, char *argv[], int def_count, AppConfig config) {
+  // printf("result: %d\n", result);
   printf("argc: %d\n", argc);
 
   // printf("Arguments:\n"); DEBUGGING
   for (int i = 0; i < argc; i++) {
-    printf("  argv[%d]: %s\n", i, argv[i]);
+    printf("argv[%d]: %s\n", i, argv[i]);
+  }
+
+  printf("Configured directory: %s\n", config.directory); // DEBUGGING
+  printf("Configured depth: %d\n", config.depth);         // DEBUGGING
+}
+
+int main(int argc, char *argv[]) {
+  // Task: Replace the manual argument parsing with the argparser library
+  AppConfig config = {.directory = ".", .depth = 1};
+  ArgDefinition defs[] = {
+      {'d', "depth", ARG_INT, &config.depth,
+       "  -d, --depth  Max depth to scan. 1=current dir "
+       "only, 0=unlimited. (default: 1)\n"},
+      {0, "directory", ARG_POSITIONAL, &config.directory,
+       "Directory to scan (default: current directory)\n"},
+  };
+  int defs_count = sizeof(defs) / sizeof(defs[0]);
+  int result = parse_arguments(argc, argv, defs, defs_count);
+  if (result != 0) {
+    // Parsing failed, error message already printed
+    return EXIT_FAILURE;
   }
 
   // --- Default values ---
-  char *directory = NULL;
-  int max_depth = 1; // Default depth is 1
+  char *directory = config.directory;
+  int max_depth = config.depth; // Default depth is 1
   char cwd_buffer[PATH_MAX];
 
-  // --- Manual Argument Parsing ---
-  for (int i = 1; i < argc; i++) {
-    // Check for -d or --depth flag
-    if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--depth") == 0) {
-      if (i + 1 < argc) {          // Make sure there is a value after the flag
-        i++;                       // Move to the next argument (the number)
-        max_depth = atoi(argv[i]); // Convert string number to int
-        if (max_depth < 0) {
-          fprintf(stderr, "Error: Depth cannot be negative.\n");
-          return EXIT_FAILURE;
-        }
-      } else {
-        fprintf(stderr, "Error: Missing value for %s\n", argv[i]);
-        return EXIT_FAILURE;
-      }
-    }
-    // Check for -h or --help
-    else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-      printf("Usage: %s [directory] [-d depth]\n", argv[0]);
-      printf("Count files in a directory up to a specified depth.\n");
-      printf("\nOptions:\n");
-      printf("  directory    Directory to scan (default: current directory)\n");
-      printf("  -d, --depth  Max depth to scan. 1=current dir only, "
-             "0=unlimited. (default: 1)\n");
-      return EXIT_SUCCESS;
-    }
-    // Check for unknown options
-    else if (argv[i][0] == '-') {
-      fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
-      return EXIT_FAILURE;
-    }
-    // Assume it's the directory path
-    else if (directory == NULL) {
-      directory = argv[i];
-    }
-    // If directory is already set, it's an error
-    else {
-      fprintf(stderr, "Error: Unexpected argument: %s\n", argv[i]);
-      return EXIT_FAILURE;
-    }
-  }
+  // debug(argc, argv, defs_count, config); // DEBUGGING
 
-  // If no directory was provided, use the current working directory
-  if (directory == NULL) {
-    if (getcwd(cwd_buffer, sizeof(cwd_buffer)) != NULL) {
-      directory = cwd_buffer;
-    } else {
-      perror("Error getting current working directory");
-      return EXIT_FAILURE;
-    }
-  }
-  // --- End Argument Parsing ---
-
-  // Call the recursive function, starting at depth 1
   long long count = count_files(directory, 1, max_depth);
-
   if (count != -1) {
     const char *depth_str = (max_depth == 0) ? "unlimited" : "";
     if (max_depth == 0) {
