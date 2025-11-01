@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
   AppConfig config = {.directory = ".", .depth = 1};
   ArgDefinition defs[] = {
       {'d', "depth", ARG_INT, &config.depth,
-       "  -d, --depth  Max depth to scan. 1=current dir "
+       "Max depth to scan. 1=current dir "
        "only, 0=unlimited. (default: 1)\n"},
       {0, "directory", ARG_POSITIONAL, &config.directory,
        "Directory to scan (default: current directory)\n"},

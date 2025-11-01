@@ -7,6 +7,10 @@ TARGET_DIR=""
 declare -a prefixes_to_remove=()
 declare -a suffixes_to_remove=()
 declare -a strings_to_remove=()
+declare -a replacements_from=()
+declare -a replacements_to=()
+# Track whether to run the default cleanup block
+APPLY_CLEANUP=true
 
 # --- 2. Help Function ---
 show_help() {
@@ -18,16 +22,21 @@ show_help() {
   echo "Options:"
   echo "  -d, --dry-run      Show what would be renamed without doing it."
   echo "  -h, --help         Show this help message."
+  echo "      --disable-defaults  Skip the default cleanup rules (see below)."
   echo
   echo "Removal Rules (can be used multiple times):"
   echo "  --prefix 'STRING'  Add a string to remove from the *beginning* of filenames."
   echo "  --suffix 'STRING'  Add a string to remove from the *end* of filenames."
   echo "  --remove 'STRING'  Add a string to remove from *anywhere* in the filename"
   echo "                     (removes all occurrences)."
+  echo "  --replace A B      Replace every occurrence of A with B (after removals)."
   echo
   echo "Default Cleanup Rules (always applied *after* removals):"
   echo "  1. Replaces all underscores (_) with dashes (-)."
   echo "  2. Squashes multiple dashes (--) into a single dash (-)."
+  echo "  3. Removes a leading or trailing dash (-)."
+  echo "     Use --disable-defaults to disable these steps."
+  echo "  4. Removes a trailing dash that comes immediately before a file extension."
   echo
   echo "Example:"
   echo "  # Dry run in '~/books' to remove a prefix and a common suffix"
@@ -68,6 +77,19 @@ while [[ $# -gt 0 ]]; do
     fi
     strings_to_remove+=("$2") # Add to global remove array
     shift 2
+    ;;
+  --replace)
+    if [ -z "$2" ] || [ -z "$3" ]; then
+      echo "Error: --replace requires two string arguments." >&2
+      exit 1
+    fi
+    replacements_from+=("$2")
+    replacements_to+=("$3")
+    shift 3
+    ;;
+  --disable-defaults)
+    APPLY_CLEANUP=false
+    shift
     ;;
   *)
     # If it's not a flag, assume it's the target directory.
@@ -120,15 +142,26 @@ find "$TARGET_DIR" -maxdepth 1 -type f | while read -r f; do
     new_name="${new_name//$str/}"
   done
 
-  # --- Rule 4: Replace underscores with dashes (Cleanup) ---
-  name_step1="${new_name//_/-}"
+  # --- Rule 4: Apply replacements ---
+  for idx in "${!replacements_from[@]}"; do
+    from="${replacements_from[$idx]}"
+    to="${replacements_to[$idx]}"
+    new_name="${new_name//$from/$to}"
+  done
 
-  # --- Rule 5: Squash multiple dashes (Cleanup) ---
-  final_name=$(echo "$name_step1" | tr -s '-')
-  # NEW: Remove a single dash if it's at the very end
-  final_name="${final_name%-}"
-  # NEW: Remove a single dash if it's at the very beginning
-  final_name="${final_name#-}"
+  if [ "$APPLY_CLEANUP" = true ]; then
+    # --- Default Cleanup: normalize separators ---
+    name_step1="${new_name//_/-}"
+    final_name=$(echo "$name_step1" | tr -s '-')
+    final_name="${final_name%-}"
+    final_name="${final_name#-}"
+    if [[ "$final_name" =~ ^(.+)-(\.[^.]+)$ ]]; then
+      # Prevent names like cleaned-file-.txt by dropping the dash before the extension
+      final_name="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    fi
+  else
+    final_name="$new_name"
+  fi
 
   # --- Safety Check ---
   if [ "$base_name" != "$final_name" ]; then
