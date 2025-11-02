@@ -22,21 +22,21 @@ show_help() {
   echo "Options:"
   echo "  -d, --dry-run      Show what would be renamed without doing it."
   echo "  -h, --help         Show this help message."
-  echo "      --disable-defaults  Skip the default cleanup rules (see below)."
+  echo "  -D, --disable-defaults  Skip the default cleanup rules (see below)."
   echo
   echo "Removal Rules (can be used multiple times):"
-  echo "  --prefix 'STRING'  Add a string to remove from the *beginning* of filenames."
-  echo "  --suffix 'STRING'  Add a string to remove from the *end* of filenames."
-  echo "  --remove 'STRING'  Add a string to remove from *anywhere* in the filename"
-  echo "                     (removes all occurrences)."
-  echo "  --replace A B      Replace every occurrence of A with B (after removals)."
+  echo "  -p, --prefix 'STRING'  Add a string to remove from the *beginning* of filenames."
+  echo "  -s, --suffix 'STRING'  Add a string to remove from the *end* of filenames."
+  echo "  -r, --remove 'STRING'  Add a string to remove from *anywhere* in the filename"
+  echo "                          (removes all occurrences)."
+  echo "  -R, --replace A B      Replace every occurrence of A with B (after removals)."
   echo
   echo "Default Cleanup Rules (always applied *after* removals):"
   echo "  1. Replaces all underscores (_) with dashes (-)."
   echo "  2. Squashes multiple dashes (--) into a single dash (-)."
   echo "  3. Removes a leading or trailing dash (-)."
-  echo "     Use --disable-defaults to disable these steps."
   echo "  4. Removes a trailing dash that comes immediately before a file extension."
+  echo "     Use --disable-defaults to disable these steps."
   echo
   echo "Example:"
   echo "  # Dry run in '~/books' to remove a prefix and a common suffix"
@@ -54,7 +54,7 @@ while [[ $# -gt 0 ]]; do
     DRY_RUN=true
     shift # Remove the flag
     ;;
-  --prefix)
+  -p | --prefix)
     if [ -z "$2" ]; then
       echo "Error: --prefix requires a string argument." >&2
       exit 1
@@ -62,7 +62,7 @@ while [[ $# -gt 0 ]]; do
     prefixes_to_remove+=("$2") # Add to prefix array
     shift 2                    # Remove the flag and its argument
     ;;
-  --suffix)
+  -s | --suffix)
     if [ -z "$2" ]; then
       echo "Error: --suffix requires a string argument." >&2
       exit 1
@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
     suffixes_to_remove+=("$2") # Add to suffix array
     shift 2
     ;;
-  --remove)
+  -r | --remove)
     if [ -z "$2" ]; then
       echo "Error: --remove requires a string argument." >&2
       exit 1
@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
     strings_to_remove+=("$2") # Add to global remove array
     shift 2
     ;;
-  --replace)
+  -R | --replace)
     if [ -z "$2" ] || [ -z "$3" ]; then
       echo "Error: --replace requires two string arguments." >&2
       exit 1
@@ -87,7 +87,7 @@ while [[ $# -gt 0 ]]; do
     replacements_to+=("$3")
     shift 3
     ;;
-  --disable-defaults)
+  -D | --disable-defaults)
     APPLY_CLEANUP=false
     shift
     ;;
