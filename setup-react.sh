@@ -61,10 +61,7 @@ fi
 echo "Creating project: $PROJECT_NAME"
 echo ""
 
-echo "👉 When prompted, enter the project name: $PROJECT_NAME"
-echo ""
-
-bunx --bun shadcn@latest init -t vite
+bunx --bun shadcn@latest init --name $PROJECT_NAME -t vite
 
 cd "$PROJECT_NAME"
 
