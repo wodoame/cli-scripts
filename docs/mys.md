@@ -1,6 +1,6 @@
 # mys
 
-`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `~/.local/bin`, and tracks its installs in a local TSV registry that acts as the source of truth.
+`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `/usr/local/bin`, and tracks its installs in a local TSV registry that acts as the source of truth.
 
 ## Why Python
 
@@ -21,8 +21,8 @@ The package name is the relative file path in the GitHub repo:
 
 By default, `mys` removes `.py` and `.sh` from the installed command name:
 
-- `mys install text_search.py` installs `~/.local/bin/text_search`
-- `mys install compile_with_argparser.sh` installs `~/.local/bin/compile_with_argparser`
+- `mys install text_search.py` installs `/usr/local/bin/text_search`
+- `mys install compile_with_argparser.sh` installs `/usr/local/bin/compile_with_argparser`
 
 Use `--keep-extension` if you want the original file name preserved.
 
@@ -34,12 +34,12 @@ Use `--keep-extension` if you want the original file name preserved.
 2. downloads only that file
 3. prepends a shebang for `.py` and `.sh` if the file does not already have one
 4. marks the installed file executable
-5. writes it into `~/.local/bin`
+5. writes it into `/usr/local/bin`
 6. records the install in `~/.local/share/mys/registry.tsv`
 
 `mys update <package>` follows the same flow, but it requires the destination command to already exist.
 
-`mys remove <command>` only removes commands that are present in the registry, which prevents accidentally deleting unrelated files from `~/.local/bin`.
+`mys remove <command>` only removes commands that are present in the registry, which prevents accidentally deleting unrelated files from `/usr/local/bin`.
 
 `mys sync` uses the registry to reinstall or refresh every tracked command at its recorded install path.
 
@@ -49,13 +49,15 @@ Defaults:
 
 - repo: `wodoame/cli-scripts`
 - branch: `main`
-- bin dir: `~/.local/bin`
+- bin dir: `/usr/local/bin`
 - registry path: `~/.local/share/mys/registry.tsv`
 
 You can override repo and branch with environment variables:
 
 - `MYS_REPO`
 - `MYS_BRANCH`
+
+If `/usr/local/bin` is not writable for your user, run `mys` with `sudo` or override `--bin-dir`.
 
 Examples:
 
@@ -104,9 +106,8 @@ mys sync
 To install `mys` itself directly from GitHub:
 
 ```bash
-mkdir -p ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o ~/.local/bin/mys
-chmod +x ~/.local/bin/mys
+sudo curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o /usr/local/bin/mys
+sudo chmod +x /usr/local/bin/mys
 ```
 
 After bootstrapping, update `mys` itself with:

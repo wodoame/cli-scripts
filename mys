@@ -15,7 +15,7 @@ from pathlib import Path
 
 DEFAULT_REPO = os.environ.get("MYS_REPO", "wodoame/cli-scripts")
 DEFAULT_BRANCH = os.environ.get("MYS_BRANCH", "main")
-DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
+DEFAULT_BIN_DIR = Path("/usr/local/bin")
 DEFAULT_REGISTRY_PATH = Path.home() / ".local" / "share" / "mys" / "registry.tsv"
 SCRIPT_EXTENSIONS = {".py", ".sh"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
@@ -378,7 +378,7 @@ def self_update(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mys",
-        description="Install individual scripts from the cli-scripts GitHub repo into ~/.local/bin.",
+        description="Install individual scripts from the cli-scripts GitHub repo into /usr/local/bin.",
     )
     parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub repo in owner/name form.")
     parser.add_argument("--branch", default=DEFAULT_BRANCH, help="Git branch or tag to download from.")
