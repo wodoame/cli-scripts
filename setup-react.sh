@@ -72,7 +72,7 @@ if [ "$USE_ROUTER" = true ]; then
 
   mkdir -p src/pages
 
-  cat <<EOF >src/pages/home.tsx
+  cat <<'EOF' >src/pages/home.tsx
 export default function Home() {
   return (
     <div>
@@ -83,7 +83,7 @@ export default function Home() {
 }
 EOF
 
-  cat <<EOF >src/App.tsx
+  cat <<'EOF' >src/App.tsx
 import { Outlet } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 
@@ -111,7 +111,7 @@ export function App() {
 export default App
 EOF
 
-  cat <<EOF >src/main.tsx
+  cat <<'EOF' >src/main.tsx
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { createBrowserRouter, RouterProvider } from "react-router-dom"

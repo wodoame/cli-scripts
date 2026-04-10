@@ -2,17 +2,13 @@
 
 set -e
 
-# =========================
 # Defaults
-# =========================
 PROJECT_NAME=""
 USE_REACT=false
 USE_FULLSTACK=false
 REACT_CREATED=false
 
-# =========================
 # Help
-# =========================
 show_help() {
   echo "Usage: $0 [project-name] [options]"
   echo ""
@@ -33,9 +29,7 @@ show_help() {
   echo "  $0 my-app --fullstack"
 }
 
-# =========================
 # Parse arguments
-# =========================
 while [[ $# -gt 0 ]]; do
   case $1 in
   -h | --help)
@@ -71,33 +65,23 @@ fi
 echo "Creating Django project: $PROJECT_NAME"
 echo ""
 
-# =========================
 # Initialize project
-# =========================
 uv init "$PROJECT_NAME"
 cd "$PROJECT_NAME"
 
-# =========================
 # Install dependencies
-# =========================
 echo "Installing Django and Django REST Framework..."
 uv add django djangorestframework
 
-# =========================
 # Create Django project
-# =========================
 echo "Creating Django project (config module)..."
 uv run django-admin startproject config .
 
-# =========================
 # Create api app
-# =========================
 echo "Creating api app..."
 uv run python manage.py startapp api
 
-# =========================
 # Create architecture folders
-# =========================
 echo "Creating api structure..."
 
 mkdir -p api/selectors
@@ -108,20 +92,16 @@ touch api/selectors/__init__.py
 touch api/services/__init__.py
 touch api/utils/__init__.py
 
-# =========================
 # Configure INSTALLED_APPS
-# =========================
 echo "Configuring INSTALLED_APPS..."
 
 sed -i "/INSTALLED_APPS = \[/a\    'rest_framework'," config/settings.py
 sed -i "/INSTALLED_APPS = \[/a\    'api'," config/settings.py
 
-# =========================
 # Wire API URLs
-# =========================
 echo "Wiring API URLs..."
 
-cat <<EOF >api/views.py
+cat <<'EOF' >api/views.py
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -131,7 +111,7 @@ class HelloWorldView(APIView):
         return Response({"message": "Hello, world!"})
 EOF
 
-cat <<EOF >api/urls.py
+cat <<'EOF' >api/urls.py
 from django.urls import path
 from .views import HelloWorldView
 
@@ -143,9 +123,7 @@ EOF
 sed -i "s/from django.urls import path/from django.urls import path, include/" config/urls.py
 sed -i "/urlpatterns = \[/a\    path('api/', include('api.urls'))," config/urls.py
 
-# =========================
 # React setup (optional)
-# =========================
 if [ "$USE_REACT" = true ]; then
   echo ""
   echo "Setting up React frontend..."
@@ -162,9 +140,7 @@ if [ "$USE_REACT" = true ]; then
   fi
 fi
 
-# =========================
 # Fullstack wiring
-# =========================
 if [ "$USE_FULLSTACK" = true ] && [ "$REACT_CREATED" = true ]; then
   echo ""
   echo "Configuring fullstack integration..."
@@ -187,7 +163,7 @@ if [ "$USE_FULLSTACK" = true ] && [ "$REACT_CREATED" = true ]; then
   fi
 
   # Create frontend view
-  cat <<EOF >config/views.py
+  cat <<'EOF' >config/views.py
 from django.views.generic import TemplateView
 
 class FrontendView(TemplateView):
@@ -198,15 +174,13 @@ EOF
   sed -i "1i from .views import FrontendView" config/urls.py
   sed -i "/urlpatterns = \[/a\    path('', FrontendView.as_view())," config/urls.py
 
-  # =========================
   # Configure Vite output (overwrite)
-  # =========================
   echo "Configuring Vite build output..."
 
   VITE_CONFIG="frontend/vite.config.ts"
 
   if [ -f "$VITE_CONFIG" ]; then
-    cat <<EOF >"$VITE_CONFIG"
+    cat <<'EOF' >"$VITE_CONFIG"
 import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
@@ -231,18 +205,14 @@ EOF
   echo "✅ Fullstack integration complete."
 fi
 
-# =========================
 # Warning if fullstack failed
-# =========================
 if [ "$USE_FULLSTACK" = true ] && [ "$REACT_CREATED" = false ]; then
   echo ""
   echo "⚠️ Fullstack setup requested, but React setup was not completed."
   echo "⚠️ Skipping frontend-backend integration."
 fi
 
-# =========================
 # Done
-# =========================
 echo ""
 echo "✅ Django project ready!"
 echo "👉 Run: cd $PROJECT_NAME && uv run python manage.py runserver"
