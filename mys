@@ -45,11 +45,8 @@ def ensure_shebang(content: bytes, package_path: str) -> bytes:
     return content
 
 
-def install_package(args: argparse.Namespace) -> int:
-    url = build_raw_url(args.repo, args.branch, args.package)
-    command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
-    destination = args.bin_dir / command_name
-
+def download_package(repo: str, branch: str, package_path: str) -> tuple[str, bytes] | None:
+    url = build_raw_url(repo, branch, package_path)
     try:
         with urllib.request.urlopen(url) as response:
             if response.status != 200:
@@ -60,18 +57,21 @@ def install_package(args: argparse.Namespace) -> int:
                     hdrs=response.headers,
                     fp=None,
                 )
-            content = response.read()
+            return url, response.read()
     except urllib.error.HTTPError as exc:
-        print(f"mys: failed to download {args.package} from {url}: {exc}", file=sys.stderr)
-        return 1
+        print(f"mys: failed to download {package_path} from {url}: {exc}", file=sys.stderr)
+        return None
     except urllib.error.URLError as exc:
         print(f"mys: network error while downloading {url}: {exc}", file=sys.stderr)
-        return 1
+        return None
 
-    content = ensure_shebang(content, args.package)
-    args.bin_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.NamedTemporaryFile(dir=args.bin_dir, delete=False) as handle:
+def write_installed_file(bin_dir: Path, package_path: str, command_name: str, content: bytes) -> Path:
+    destination = bin_dir / command_name
+    content = ensure_shebang(content, package_path)
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(dir=bin_dir, delete=False) as handle:
         temp_path = Path(handle.name)
         handle.write(content)
 
@@ -85,8 +85,39 @@ def install_package(args: argparse.Namespace) -> int:
         | stat.S_IXOTH
     )
     temp_path.replace(destination)
+    return destination
+
+
+def install_package(args: argparse.Namespace) -> int:
+    downloaded = download_package(args.repo, args.branch, args.package)
+    if downloaded is None:
+        return 1
+
+    _, content = downloaded
+    command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
+    destination = write_installed_file(args.bin_dir, args.package, command_name, content)
 
     print(f"Installed {args.package} as {destination}")
+    return 0
+
+
+def update_package(args: argparse.Namespace) -> int:
+    downloaded = download_package(args.repo, args.branch, args.package)
+    if downloaded is None:
+        return 1
+
+    _, content = downloaded
+    command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
+    destination = args.bin_dir / command_name
+    if not destination.exists():
+        print(
+            f"mys: {destination} is not installed yet; use 'mys install {args.package}' first",
+            file=sys.stderr,
+        )
+        return 1
+
+    write_installed_file(args.bin_dir, args.package, command_name, content)
+    print(f"Updated {args.package} at {destination}")
     return 0
 
 
@@ -110,6 +141,18 @@ def print_config(_: argparse.Namespace) -> int:
     print(f"repo: {DEFAULT_REPO}")
     print(f"branch: {DEFAULT_BRANCH}")
     print(f"bin_dir: {DEFAULT_BIN_DIR}")
+    return 0
+
+
+def self_update(args: argparse.Namespace) -> int:
+    package_path = "mys"
+    downloaded = download_package(args.repo, args.branch, package_path)
+    if downloaded is None:
+        return 1
+
+    _, content = downloaded
+    destination = write_installed_file(args.bin_dir, package_path, "mys", content)
+    print(f"Updated mys at {destination}")
     return 0
 
 
@@ -142,6 +185,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     install_parser.set_defaults(func=install_package)
 
+    update_parser = subparsers.add_parser("update", help="Download and overwrite an installed script.")
+    update_parser.add_argument(
+        "package",
+        help="Relative file path in the GitHub repo, for example text_search.py or linux/dirtree.py.",
+    )
+    update_parser.add_argument("--as", dest="as_name", help="Installed command name to overwrite.")
+    update_parser.add_argument(
+        "--keep-extension",
+        action="store_true",
+        help="Keep .py or .sh in the installed command name.",
+    )
+    update_parser.set_defaults(func=update_package)
+
     remove_parser = subparsers.add_parser("remove", help="Remove an installed command.")
     remove_parser.add_argument("name", help="Installed command name in the target bin directory.")
     remove_parser.set_defaults(func=remove_package)
@@ -152,6 +208,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_parser = subparsers.add_parser("config", help="Print the active mys configuration.")
     config_parser.set_defaults(func=print_config)
+
+    self_update_parser = subparsers.add_parser("self-update", help="Update the installed mys command.")
+    self_update_parser.set_defaults(func=self_update)
 
     return parser
 

@@ -1,6 +1,6 @@
 # mys
 
-`mys` is a small personal package manager for this repo. It installs one script at a time from GitHub into `~/.local/bin`.
+`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `~/.local/bin`.
 
 ## Why Python
 
@@ -36,6 +36,8 @@ Use `--keep-extension` if you want the original file name preserved.
 4. marks the installed file executable
 5. writes it into `~/.local/bin`
 
+`mys update <package>` follows the same flow, but it requires the destination command to already exist.
+
 ## Configuration
 
 Defaults:
@@ -53,7 +55,9 @@ Examples:
 
 ```bash
 mys install text_search.py
+mys update text_search.py
 mys install linux/dirtree.py --as dirtree-linux
+mys self-update
 mys remove text_search
 mys config
 ```
@@ -64,4 +68,10 @@ To install `mys` itself:
 
 ```bash
 install -Dm755 ./mys ~/.local/bin/mys
+```
+
+After bootstrapping, update `mys` itself with:
+
+```bash
+mys self-update
 ```
