@@ -1,6 +1,6 @@
 # mys
 
-`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `~/.local/bin`, and tracks its installs in a local TSV registry.
+`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `~/.local/bin`, and tracks its installs in a local TSV registry that acts as the source of truth.
 
 ## Why Python
 
@@ -41,6 +41,8 @@ Use `--keep-extension` if you want the original file name preserved.
 
 `mys remove <command>` only removes commands that are present in the registry, which prevents accidentally deleting unrelated files from `~/.local/bin`.
 
+`mys sync` uses the registry to reinstall or refresh every tracked command at its recorded install path.
+
 ## Configuration
 
 Defaults:
@@ -62,6 +64,9 @@ mys install text_search.py
 mys update text_search.py
 mys install linux/dirtree.py --as dirtree-linux
 mys list
+mys export mys-registry.tsv
+mys import mys-registry.tsv
+mys sync
 mys self-update
 mys remove text_search
 mys config
@@ -76,6 +81,23 @@ The registry is a tab-separated file with these columns:
 3. repo
 4. branch
 5. installed path
+
+## Moving To Another Machine
+
+On the current machine:
+
+```bash
+mys export mys-registry.tsv
+```
+
+On the new machine:
+
+```bash
+mys import mys-registry.tsv
+mys sync
+```
+
+`mys import` merges entries by command name by default. Use `mys import --replace ...` if you want the imported registry to fully replace the local one.
 
 ## Bootstrapping
 

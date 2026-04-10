@@ -109,6 +109,13 @@ def save_registry(registry_path: Path, entries: list[dict[str, str]]) -> None:
     temp_path.replace(registry_path)
 
 
+def normalize_registry_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
+    normalized_by_command: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        normalized_by_command[entry["command_name"]] = entry
+    return [normalized_by_command[name] for name in sorted(normalized_by_command)]
+
+
 def upsert_registry_entry(
     registry_path: Path,
     command_name: str,
@@ -159,6 +166,12 @@ def find_registry_entry(registry_path: Path, command_name: str) -> dict[str, str
         if entry["command_name"] == command_name:
             return entry
     return None
+
+
+def write_registry_rows(handle, entries: list[dict[str, str]]) -> None:
+    for entry in entries:
+        row = "\t".join(entry[field] for field in REGISTRY_FIELDS)
+        handle.write(f"{row}\n")
 
 
 def write_installed_file(bin_dir: Path, package_path: str, command_name: str, content: bytes) -> Path:
@@ -273,6 +286,70 @@ def list_packages(args: argparse.Namespace) -> int:
     return 0
 
 
+def export_registry(args: argparse.Namespace) -> int:
+    entries = normalize_registry_entries(load_registry(args.registry_path))
+    if args.output == "-":
+        write_registry_rows(sys.stdout, entries)
+        return 0
+
+    output_path = Path(args.output).expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as handle:
+        write_registry_rows(handle, entries)
+
+    print(f"Exported registry to {output_path}")
+    return 0
+
+
+def import_registry(args: argparse.Namespace) -> int:
+    source_path = Path(args.input).expanduser()
+    imported_entries = normalize_registry_entries(load_registry(source_path))
+    current_entries = [] if args.replace else load_registry(args.registry_path)
+
+    merged_entries_by_command = {entry["command_name"]: entry for entry in current_entries}
+    for entry in imported_entries:
+        merged_entries_by_command[entry["command_name"]] = entry
+
+    save_registry(
+        args.registry_path,
+        [merged_entries_by_command[name] for name in sorted(merged_entries_by_command)],
+    )
+    print(f"Imported {len(imported_entries)} entries into {args.registry_path}")
+    return 0
+
+
+def sync_registry(args: argparse.Namespace) -> int:
+    entries = normalize_registry_entries(load_registry(args.registry_path))
+    if not entries:
+        print("No packages installed by mys.")
+        return 0
+
+    for entry in entries:
+        downloaded = download_package(entry["repo"], entry["branch"], entry["package_path"])
+        if downloaded is None:
+            return 1
+
+        _, content = downloaded
+        install_path = Path(entry["install_path"]).expanduser()
+        write_installed_file(
+            install_path.parent,
+            entry["package_path"],
+            entry["command_name"],
+            content,
+        )
+        upsert_registry_entry(
+            args.registry_path,
+            entry["command_name"],
+            entry["package_path"],
+            entry["repo"],
+            entry["branch"],
+            install_path,
+        )
+        print(f"Synced {entry['command_name']} to {install_path}")
+
+    return 0
+
+
 def print_url(args: argparse.Namespace) -> int:
     print(build_raw_url(args.repo, args.branch, args.package))
     return 0
@@ -352,6 +429,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", help="List commands tracked by mys.")
     list_parser.set_defaults(func=list_packages)
+
+    export_parser = subparsers.add_parser("export", help="Export the mys registry as TSV.")
+    export_parser.add_argument(
+        "output",
+        nargs="?",
+        default="-",
+        help="Output path for the exported TSV. Use '-' or omit it to write to stdout.",
+    )
+    export_parser.set_defaults(func=export_registry)
+
+    import_parser = subparsers.add_parser("import", help="Import registry entries from a TSV file.")
+    import_parser.add_argument("input", help="Path to a TSV file previously exported by mys.")
+    import_parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace the existing registry instead of merging by command name.",
+    )
+    import_parser.set_defaults(func=import_registry)
+
+    sync_parser = subparsers.add_parser("sync", help="Install or refresh every command tracked in the registry.")
+    sync_parser.set_defaults(func=sync_registry)
 
     url_parser = subparsers.add_parser("url", help="Print the raw GitHub URL for a package path.")
     url_parser.add_argument("package", help="Relative file path in the GitHub repo.")
