@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import stat
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+DEFAULT_REPO = os.environ.get("MYS_REPO", "wodoame/cli-scripts")
+DEFAULT_BRANCH = os.environ.get("MYS_BRANCH", "main")
+DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
+SCRIPT_EXTENSIONS = {".py", ".sh"}
+
+
+def build_raw_url(repo: str, branch: str, package_path: str) -> str:
+    quoted_path = urllib.parse.quote(package_path.lstrip("/"), safe="/")
+    return f"https://raw.githubusercontent.com/{repo}/{branch}/{quoted_path}"
+
+
+def derive_command_name(package_path: str, keep_extension: bool) -> str:
+    package_name = Path(package_path).name
+    if keep_extension:
+        return package_name
+    if Path(package_name).suffix in SCRIPT_EXTENSIONS:
+        return Path(package_name).stem
+    return package_name
+
+
+def ensure_shebang(content: bytes, package_path: str) -> bytes:
+    if content.startswith(b"#!"):
+        return content
+
+    suffix = Path(package_path).suffix
+    if suffix == ".py":
+        return b"#!/usr/bin/env python3\n" + content
+    if suffix == ".sh":
+        return b"#!/usr/bin/env bash\n" + content
+    return content
+
+
+def install_package(args: argparse.Namespace) -> int:
+    url = build_raw_url(args.repo, args.branch, args.package)
+    command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
+    destination = args.bin_dir / command_name
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            if response.status != 200:
+                raise urllib.error.HTTPError(
+                    url,
+                    response.status,
+                    f"unexpected status code: {response.status}",
+                    hdrs=response.headers,
+                    fp=None,
+                )
+            content = response.read()
+    except urllib.error.HTTPError as exc:
+        print(f"mys: failed to download {args.package} from {url}: {exc}", file=sys.stderr)
+        return 1
+    except urllib.error.URLError as exc:
+        print(f"mys: network error while downloading {url}: {exc}", file=sys.stderr)
+        return 1
+
+    content = ensure_shebang(content, args.package)
+    args.bin_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(dir=args.bin_dir, delete=False) as handle:
+        temp_path = Path(handle.name)
+        handle.write(content)
+
+    temp_path.chmod(
+        stat.S_IRUSR
+        | stat.S_IWUSR
+        | stat.S_IXUSR
+        | stat.S_IRGRP
+        | stat.S_IXGRP
+        | stat.S_IROTH
+        | stat.S_IXOTH
+    )
+    temp_path.replace(destination)
+
+    print(f"Installed {args.package} as {destination}")
+    return 0
+
+
+def remove_package(args: argparse.Namespace) -> int:
+    destination = args.bin_dir / args.name
+    if not destination.exists():
+        print(f"mys: {destination} does not exist", file=sys.stderr)
+        return 1
+
+    destination.unlink()
+    print(f"Removed {destination}")
+    return 0
+
+
+def print_url(args: argparse.Namespace) -> int:
+    print(build_raw_url(args.repo, args.branch, args.package))
+    return 0
+
+
+def print_config(_: argparse.Namespace) -> int:
+    print(f"repo: {DEFAULT_REPO}")
+    print(f"branch: {DEFAULT_BRANCH}")
+    print(f"bin_dir: {DEFAULT_BIN_DIR}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mys",
+        description="Install individual scripts from the cli-scripts GitHub repo into ~/.local/bin.",
+    )
+    parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub repo in owner/name form.")
+    parser.add_argument("--branch", default=DEFAULT_BRANCH, help="Git branch or tag to download from.")
+    parser.add_argument(
+        "--bin-dir",
+        type=Path,
+        default=DEFAULT_BIN_DIR,
+        help="Directory to install commands into.",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    install_parser = subparsers.add_parser("install", help="Download and install a script.")
+    install_parser.add_argument(
+        "package",
+        help="Relative file path in the GitHub repo, for example text_search.py or linux/dirtree.py.",
+    )
+    install_parser.add_argument("--as", dest="as_name", help="Override the installed command name.")
+    install_parser.add_argument(
+        "--keep-extension",
+        action="store_true",
+        help="Keep .py or .sh in the installed command name.",
+    )
+    install_parser.set_defaults(func=install_package)
+
+    remove_parser = subparsers.add_parser("remove", help="Remove an installed command.")
+    remove_parser.add_argument("name", help="Installed command name in the target bin directory.")
+    remove_parser.set_defaults(func=remove_package)
+
+    url_parser = subparsers.add_parser("url", help="Print the raw GitHub URL for a package path.")
+    url_parser.add_argument("package", help="Relative file path in the GitHub repo.")
+    url_parser.set_defaults(func=print_url)
+
+    config_parser = subparsers.add_parser("config", help="Print the active mys configuration.")
+    config_parser.set_defaults(func=print_config)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
