@@ -1,6 +1,6 @@
 # mys
 
-`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `~/.local/bin`.
+`mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `~/.local/bin`, and tracks its installs in a local TSV registry.
 
 ## Why Python
 
@@ -35,8 +35,11 @@ Use `--keep-extension` if you want the original file name preserved.
 3. prepends a shebang for `.py` and `.sh` if the file does not already have one
 4. marks the installed file executable
 5. writes it into `~/.local/bin`
+6. records the install in `~/.local/share/mys/registry.tsv`
 
 `mys update <package>` follows the same flow, but it requires the destination command to already exist.
+
+`mys remove <command>` only removes commands that are present in the registry, which prevents accidentally deleting unrelated files from `~/.local/bin`.
 
 ## Configuration
 
@@ -45,6 +48,7 @@ Defaults:
 - repo: `wodoame/cli-scripts`
 - branch: `main`
 - bin dir: `~/.local/bin`
+- registry path: `~/.local/share/mys/registry.tsv`
 
 You can override repo and branch with environment variables:
 
@@ -57,10 +61,21 @@ Examples:
 mys install text_search.py
 mys update text_search.py
 mys install linux/dirtree.py --as dirtree-linux
+mys list
 mys self-update
 mys remove text_search
 mys config
 ```
+
+## Registry Format
+
+The registry is a tab-separated file with these columns:
+
+1. command name
+2. package path
+3. repo
+4. branch
+5. installed path
 
 ## Bootstrapping
 

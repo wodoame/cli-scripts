@@ -16,7 +16,9 @@ from pathlib import Path
 DEFAULT_REPO = os.environ.get("MYS_REPO", "wodoame/cli-scripts")
 DEFAULT_BRANCH = os.environ.get("MYS_BRANCH", "main")
 DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
+DEFAULT_REGISTRY_PATH = Path.home() / ".local" / "share" / "mys" / "registry.tsv"
 SCRIPT_EXTENSIONS = {".py", ".sh"}
+REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
 
 
 def build_raw_url(repo: str, branch: str, package_path: str) -> str:
@@ -66,6 +68,99 @@ def download_package(repo: str, branch: str, package_path: str) -> tuple[str, by
         return None
 
 
+def load_registry(registry_path: Path) -> list[dict[str, str]]:
+    if not registry_path.exists():
+        return []
+
+    entries: list[dict[str, str]] = []
+    with registry_path.open("r", encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.rstrip("\n")
+            if not line:
+                continue
+
+            parts = line.split("\t")
+            if len(parts) != len(REGISTRY_FIELDS):
+                print(
+                    f"mys: ignoring malformed registry entry at {registry_path}:{line_number}",
+                    file=sys.stderr,
+                )
+                continue
+
+            entries.append(dict(zip(REGISTRY_FIELDS, parts)))
+
+    return entries
+
+
+def save_registry(registry_path: Path, entries: list[dict[str, str]]) -> None:
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(
+        "w",
+        dir=registry_path.parent,
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        temp_path = Path(handle.name)
+        for entry in entries:
+            row = "\t".join(entry[field] for field in REGISTRY_FIELDS)
+            handle.write(f"{row}\n")
+
+    temp_path.replace(registry_path)
+
+
+def upsert_registry_entry(
+    registry_path: Path,
+    command_name: str,
+    package_path: str,
+    repo: str,
+    branch: str,
+    install_path: Path,
+) -> None:
+    entries = load_registry(registry_path)
+    entry = {
+        "command_name": command_name,
+        "package_path": package_path,
+        "repo": repo,
+        "branch": branch,
+        "install_path": str(install_path),
+    }
+
+    for index, existing in enumerate(entries):
+        if existing["command_name"] == command_name:
+            entries[index] = entry
+            break
+    else:
+        entries.append(entry)
+
+    save_registry(registry_path, entries)
+
+
+def remove_registry_entry(registry_path: Path, command_name: str) -> dict[str, str] | None:
+    entries = load_registry(registry_path)
+    remaining_entries: list[dict[str, str]] = []
+    removed_entry: dict[str, str] | None = None
+
+    for entry in entries:
+        if entry["command_name"] == command_name and removed_entry is None:
+            removed_entry = entry
+            continue
+        remaining_entries.append(entry)
+
+    if removed_entry is None:
+        return None
+
+    save_registry(registry_path, remaining_entries)
+    return removed_entry
+
+
+def find_registry_entry(registry_path: Path, command_name: str) -> dict[str, str] | None:
+    for entry in load_registry(registry_path):
+        if entry["command_name"] == command_name:
+            return entry
+    return None
+
+
 def write_installed_file(bin_dir: Path, package_path: str, command_name: str, content: bytes) -> Path:
     destination = bin_dir / command_name
     content = ensure_shebang(content, package_path)
@@ -96,6 +191,14 @@ def install_package(args: argparse.Namespace) -> int:
     _, content = downloaded
     command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
     destination = write_installed_file(args.bin_dir, args.package, command_name, content)
+    upsert_registry_entry(
+        args.registry_path,
+        command_name,
+        args.package,
+        args.repo,
+        args.branch,
+        destination,
+    )
 
     print(f"Installed {args.package} as {destination}")
     return 0
@@ -117,18 +220,56 @@ def update_package(args: argparse.Namespace) -> int:
         return 1
 
     write_installed_file(args.bin_dir, args.package, command_name, content)
+    upsert_registry_entry(
+        args.registry_path,
+        command_name,
+        args.package,
+        args.repo,
+        args.branch,
+        destination,
+    )
     print(f"Updated {args.package} at {destination}")
     return 0
 
 
 def remove_package(args: argparse.Namespace) -> int:
+    entry = find_registry_entry(args.registry_path, args.name)
+    if entry is None:
+        print(
+            f"mys: {args.name} is not registered in {args.registry_path}; refusing to delete it",
+            file=sys.stderr,
+        )
+        return 1
+
     destination = args.bin_dir / args.name
     if not destination.exists():
         print(f"mys: {destination} does not exist", file=sys.stderr)
         return 1
 
     destination.unlink()
+    remove_registry_entry(args.registry_path, args.name)
     print(f"Removed {destination}")
+    return 0
+
+
+def list_packages(args: argparse.Namespace) -> int:
+    entries = load_registry(args.registry_path)
+    if not entries:
+        print("No packages installed by mys.")
+        return 0
+
+    for entry in entries:
+        print(
+            "\t".join(
+                (
+                    entry["command_name"],
+                    entry["package_path"],
+                    entry["repo"],
+                    entry["branch"],
+                    entry["install_path"],
+                )
+            )
+        )
     return 0
 
 
@@ -137,10 +278,11 @@ def print_url(args: argparse.Namespace) -> int:
     return 0
 
 
-def print_config(_: argparse.Namespace) -> int:
-    print(f"repo: {DEFAULT_REPO}")
-    print(f"branch: {DEFAULT_BRANCH}")
-    print(f"bin_dir: {DEFAULT_BIN_DIR}")
+def print_config(args: argparse.Namespace) -> int:
+    print(f"repo: {args.repo}")
+    print(f"branch: {args.branch}")
+    print(f"bin_dir: {args.bin_dir}")
+    print(f"registry_path: {args.registry_path}")
     return 0
 
 
@@ -168,6 +310,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_BIN_DIR,
         help="Directory to install commands into.",
+    )
+    parser.add_argument(
+        "--registry-path",
+        type=Path,
+        default=DEFAULT_REGISTRY_PATH,
+        help="Path to the mys TSV registry file.",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -201,6 +349,9 @@ def build_parser() -> argparse.ArgumentParser:
     remove_parser = subparsers.add_parser("remove", help="Remove an installed command.")
     remove_parser.add_argument("name", help="Installed command name in the target bin directory.")
     remove_parser.set_defaults(func=remove_package)
+
+    list_parser = subparsers.add_parser("list", help="List commands tracked by mys.")
+    list_parser.set_defaults(func=list_packages)
 
     url_parser = subparsers.add_parser("url", help="Print the raw GitHub URL for a package path.")
     url_parser.add_argument("package", help="Relative file path in the GitHub repo.")
