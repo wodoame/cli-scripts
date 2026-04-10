@@ -64,10 +64,12 @@ mys config
 
 ## Bootstrapping
 
-To install `mys` itself:
+To install `mys` itself directly from GitHub:
 
 ```bash
-install -Dm755 ./mys ~/.local/bin/mys
+mkdir -p ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o ~/.local/bin/mys
+chmod +x ~/.local/bin/mys
 ```
 
 After bootstrapping, update `mys` itself with:
