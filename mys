@@ -13,12 +13,14 @@ import urllib.request
 from pathlib import Path
 
 
-DEFAULT_REPO = os.environ.get("MYS_REPO", "wodoame/cli-scripts")
-DEFAULT_BRANCH = os.environ.get("MYS_BRANCH", "main")
+DEFAULT_REPO = "wodoame/cli-scripts"
+DEFAULT_BRANCH = "main"
 DEFAULT_BIN_DIR = Path("/usr/local/bin")
 DEFAULT_REGISTRY_PATH = Path.home() / ".local" / "share" / "mys" / "registry.tsv"
+DEFAULT_CONFIG_PATH = Path.home() / ".config" / "mys" / "config.tsv"
 SCRIPT_EXTENSIONS = {".py", ".sh"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
+CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
 
 
 def build_raw_url(repo: str, branch: str, package_path: str) -> str:
@@ -90,6 +92,47 @@ def load_registry(registry_path: Path) -> list[dict[str, str]]:
             entries.append(dict(zip(REGISTRY_FIELDS, parts)))
 
     return entries
+
+
+def load_config(config_path: Path) -> dict[str, str]:
+    if not config_path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    with config_path.open("r", encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.rstrip("\n")
+            if not line:
+                continue
+
+            parts = line.split("\t", maxsplit=1)
+            if len(parts) != 2 or parts[0] not in CONFIG_FIELDS:
+                print(
+                    f"mys: ignoring malformed config entry at {config_path}:{line_number}",
+                    file=sys.stderr,
+                )
+                continue
+
+            key, value = parts
+            values[key] = value
+
+    return values
+
+
+def save_config(config_path: Path, values: dict[str, str]) -> None:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(
+        "w",
+        dir=config_path.parent,
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        temp_path = Path(handle.name)
+        for key in CONFIG_FIELDS:
+            handle.write(f"{key}\t{values[key]}\n")
+
+    temp_path.replace(config_path)
 
 
 def save_registry(registry_path: Path, entries: list[dict[str, str]]) -> None:
@@ -172,6 +215,45 @@ def write_registry_rows(handle, entries: list[dict[str, str]]) -> None:
     for entry in entries:
         row = "\t".join(entry[field] for field in REGISTRY_FIELDS)
         handle.write(f"{row}\n")
+
+
+def get_bootstrap_config_path(argv: list[str]) -> Path:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--config-path", type=Path)
+    parsed, _ = parser.parse_known_args(argv)
+
+    if parsed.config_path is not None:
+        return parsed.config_path.expanduser()
+
+    return Path(os.environ.get("MYS_CONFIG_PATH", DEFAULT_CONFIG_PATH)).expanduser()
+
+
+def build_effective_config(config_path: Path) -> dict[str, str]:
+    values = {
+        "repo": DEFAULT_REPO,
+        "branch": DEFAULT_BRANCH,
+        "bin_dir": str(DEFAULT_BIN_DIR),
+        "registry_path": str(DEFAULT_REGISTRY_PATH),
+    }
+
+    values.update(load_config(config_path))
+    return values
+
+
+def apply_environment_overrides(values: dict[str, str]) -> dict[str, str]:
+    values = dict(values)
+
+    env_overrides = {
+        "repo": os.environ.get("MYS_REPO"),
+        "branch": os.environ.get("MYS_BRANCH"),
+        "bin_dir": os.environ.get("MYS_BIN_DIR"),
+        "registry_path": os.environ.get("MYS_REGISTRY_PATH"),
+    }
+    for key, value in env_overrides.items():
+        if value:
+            values[key] = value
+
+    return values
 
 
 def write_installed_file(bin_dir: Path, package_path: str, command_name: str, content: bytes) -> Path:
@@ -356,10 +438,30 @@ def print_url(args: argparse.Namespace) -> int:
 
 
 def print_config(args: argparse.Namespace) -> int:
+    updates: dict[str, str] = {}
+    if args.config_repo is not None:
+        updates["repo"] = args.config_repo
+    if args.config_branch is not None:
+        updates["branch"] = args.config_branch
+    if args.config_bin_dir is not None:
+        updates["bin_dir"] = str(args.config_bin_dir)
+    if args.config_registry_path is not None:
+        updates["registry_path"] = str(args.config_registry_path)
+
+    if updates:
+        stored_values = build_effective_config(args.config_path)
+        stored_values.update(updates)
+        save_config(args.config_path, stored_values)
+        args.repo = stored_values["repo"]
+        args.branch = stored_values["branch"]
+        args.bin_dir = Path(stored_values["bin_dir"]).expanduser()
+        args.registry_path = Path(stored_values["registry_path"]).expanduser()
+
     print(f"repo: {args.repo}")
     print(f"branch: {args.branch}")
     print(f"bin_dir: {args.bin_dir}")
     print(f"registry_path: {args.registry_path}")
+    print(f"config_path: {args.config_path}")
     return 0
 
 
@@ -375,24 +477,30 @@ def self_update(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(defaults: dict[str, str], default_config_path: Path) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mys",
         description="Install individual scripts from the cli-scripts GitHub repo into /usr/local/bin.",
     )
-    parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub repo in owner/name form.")
-    parser.add_argument("--branch", default=DEFAULT_BRANCH, help="Git branch or tag to download from.")
+    parser.add_argument("--repo", default=defaults["repo"], help="GitHub repo in owner/name form.")
+    parser.add_argument("--branch", default=defaults["branch"], help="Git branch or tag to download from.")
     parser.add_argument(
         "--bin-dir",
         type=Path,
-        default=DEFAULT_BIN_DIR,
+        default=Path(defaults["bin_dir"]).expanduser(),
         help="Directory to install commands into.",
     )
     parser.add_argument(
         "--registry-path",
         type=Path,
-        default=DEFAULT_REGISTRY_PATH,
+        default=Path(defaults["registry_path"]).expanduser(),
         help="Path to the mys TSV registry file.",
+    )
+    parser.add_argument(
+        "--config-path",
+        type=Path,
+        default=default_config_path,
+        help="Path to the mys config file.",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -455,7 +563,21 @@ def build_parser() -> argparse.ArgumentParser:
     url_parser.add_argument("package", help="Relative file path in the GitHub repo.")
     url_parser.set_defaults(func=print_url)
 
-    config_parser = subparsers.add_parser("config", help="Print the active mys configuration.")
+    config_parser = subparsers.add_parser("config", help="Print or update the active mys configuration.")
+    config_parser.add_argument("--repo", dest="config_repo", help="Persist a default GitHub repo.")
+    config_parser.add_argument("--branch", dest="config_branch", help="Persist a default Git branch or tag.")
+    config_parser.add_argument(
+        "--bin-dir",
+        dest="config_bin_dir",
+        type=Path,
+        help="Persist a default installation directory.",
+    )
+    config_parser.add_argument(
+        "--registry-path",
+        dest="config_registry_path",
+        type=Path,
+        help="Persist a default registry path.",
+    )
     config_parser.set_defaults(func=print_config)
 
     self_update_parser = subparsers.add_parser("self-update", help="Update the installed mys command.")
@@ -465,8 +587,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    parser = build_parser()
+    config_path = get_bootstrap_config_path(sys.argv[1:])
+    defaults = apply_environment_overrides(build_effective_config(config_path))
+    parser = build_parser(defaults, config_path)
     args = parser.parse_args()
+    args.config_path = args.config_path.expanduser()
     return args.func(args)
 
 

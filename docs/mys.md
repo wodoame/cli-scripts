@@ -45,19 +45,41 @@ Use `--keep-extension` if you want the original file name preserved.
 
 ## Configuration
 
+`mys` can persist its defaults in `~/.config/mys/config.tsv`.
+
 Defaults:
 
 - repo: `wodoame/cli-scripts`
 - branch: `main`
 - bin dir: `/usr/local/bin`
 - registry path: `~/.local/share/mys/registry.tsv`
+- config path: `~/.config/mys/config.tsv`
 
-You can override repo and branch with environment variables:
+Runtime precedence is:
+
+1. built-in defaults
+2. config file
+3. environment variables
+4. CLI flags
+
+You can override config values with environment variables:
 
 - `MYS_REPO`
 - `MYS_BRANCH`
+- `MYS_BIN_DIR`
+- `MYS_REGISTRY_PATH`
+- `MYS_CONFIG_PATH`
 
 If `/usr/local/bin` is not writable for your user, run `mys` with `sudo` or override `--bin-dir`.
+
+To persist new defaults for later runs:
+
+```bash
+mys config --repo wodoame/cli-scripts --branch main
+mys config --bin-dir ~/bin --registry-path ~/.local/share/mys/registry.tsv
+```
+
+Running `mys config` without extra flags prints the active values.
 
 Examples:
 
