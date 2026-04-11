@@ -278,6 +278,15 @@ def write_installed_file(bin_dir: Path, package_path: str, command_name: str, co
     return destination
 
 
+def print_install_permission_error(destination: Path) -> int:
+    print(
+        "mys: permission denied while writing "
+        f"{destination}; try running with sudo or use '--bin-dir' to pick a writable directory",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def install_package(args: argparse.Namespace) -> int:
     downloaded = download_package(args.repo, args.branch, args.package)
     if downloaded is None:
@@ -285,7 +294,11 @@ def install_package(args: argparse.Namespace) -> int:
 
     _, content = downloaded
     command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
-    destination = write_installed_file(args.bin_dir, args.package, command_name, content)
+    try:
+        destination = write_installed_file(args.bin_dir, args.package, command_name, content)
+    except PermissionError:
+        return print_install_permission_error(args.bin_dir / command_name)
+
     upsert_registry_entry(
         args.registry_path,
         command_name,
@@ -314,7 +327,11 @@ def update_package(args: argparse.Namespace) -> int:
         )
         return 1
 
-    write_installed_file(args.bin_dir, args.package, command_name, content)
+    try:
+        write_installed_file(args.bin_dir, args.package, command_name, content)
+    except PermissionError:
+        return print_install_permission_error(destination)
+
     upsert_registry_entry(
         args.registry_path,
         command_name,
@@ -413,12 +430,16 @@ def sync_registry(args: argparse.Namespace) -> int:
 
         _, content = downloaded
         install_path = Path(entry["install_path"]).expanduser()
-        write_installed_file(
-            install_path.parent,
-            entry["package_path"],
-            entry["command_name"],
-            content,
-        )
+        try:
+            write_installed_file(
+                install_path.parent,
+                entry["package_path"],
+                entry["command_name"],
+                content,
+            )
+        except PermissionError:
+            return print_install_permission_error(install_path)
+
         upsert_registry_entry(
             args.registry_path,
             entry["command_name"],
@@ -472,7 +493,12 @@ def self_update(args: argparse.Namespace) -> int:
         return 1
 
     _, content = downloaded
-    destination = write_installed_file(args.bin_dir, package_path, "mys", content)
+    destination_path = args.bin_dir / "mys"
+    try:
+        destination = write_installed_file(args.bin_dir, package_path, "mys", content)
+    except PermissionError:
+        return print_install_permission_error(destination_path)
+
     print(f"Updated mys at {destination}")
     return 0
 
