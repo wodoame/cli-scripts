@@ -287,13 +287,30 @@ def print_install_permission_error(destination: Path) -> int:
     return 1
 
 
+def check_path_writable(path: Path) -> bool:
+    """Recursively check if a path or its closest existing parent is writable."""
+    current = path
+    while not current.exists() and current.parent != current:
+        current = current.parent
+    return os.access(current, os.W_OK)
+
+
+def ensure_bin_dir_writable(bin_dir: Path, command_name: str) -> int | None:
+    if not check_path_writable(bin_dir):
+        return print_install_permission_error(bin_dir / command_name)
+    return None
+
+
 def install_package(args: argparse.Namespace) -> int:
+    command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
+    if error_code := ensure_bin_dir_writable(args.bin_dir, command_name):
+        return error_code
+
     downloaded = download_package(args.repo, args.branch, args.package)
     if downloaded is None:
         return 1
 
     _, content = downloaded
-    command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
     try:
         destination = write_installed_file(args.bin_dir, args.package, command_name, content)
     except PermissionError:
@@ -313,11 +330,6 @@ def install_package(args: argparse.Namespace) -> int:
 
 
 def update_package(args: argparse.Namespace) -> int:
-    downloaded = download_package(args.repo, args.branch, args.package)
-    if downloaded is None:
-        return 1
-
-    _, content = downloaded
     command_name = args.as_name or derive_command_name(args.package, args.keep_extension)
     destination = args.bin_dir / command_name
     if not destination.exists():
@@ -326,6 +338,15 @@ def update_package(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if error_code := ensure_bin_dir_writable(args.bin_dir, command_name):
+        return error_code
+
+    downloaded = download_package(args.repo, args.branch, args.package)
+    if downloaded is None:
+        return 1
+
+    _, content = downloaded
 
     try:
         write_installed_file(args.bin_dir, args.package, command_name, content)
@@ -424,12 +445,15 @@ def sync_registry(args: argparse.Namespace) -> int:
         return 0
 
     for entry in entries:
+        install_path = Path(entry["install_path"]).expanduser()
+        if error_code := ensure_bin_dir_writable(install_path.parent, entry["command_name"]):
+            return error_code
+
         downloaded = download_package(entry["repo"], entry["branch"], entry["package_path"])
         if downloaded is None:
             return 1
 
         _, content = downloaded
-        install_path = Path(entry["install_path"]).expanduser()
         try:
             write_installed_file(
                 install_path.parent,
@@ -488,12 +512,15 @@ def print_config(args: argparse.Namespace) -> int:
 
 def self_update(args: argparse.Namespace) -> int:
     package_path = "mys"
+    destination_path = args.bin_dir / "mys"
+    if error_code := ensure_bin_dir_writable(args.bin_dir, "mys"):
+        return error_code
+
     downloaded = download_package(args.repo, args.branch, package_path)
     if downloaded is None:
         return 1
 
     _, content = downloaded
-    destination_path = args.bin_dir / "mys"
     try:
         destination = write_installed_file(args.bin_dir, package_path, "mys", content)
     except PermissionError:
