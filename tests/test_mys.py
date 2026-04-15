@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import pwd
 import runpy
 from pathlib import Path
 
@@ -129,6 +130,30 @@ def test_config_persistence_and_environment_precedence(tmp_path: Path) -> None:
     assert overridden["repo"] == "env/repo"
     assert overridden["branch"] == "env-branch"
     assert overridden["bin_dir"] == str(tmp_path / "saved-bin")
+
+
+def test_sudo_uses_invoking_users_home_for_defaults() -> None:
+    current_user = pwd.getpwuid(os.getuid())
+    expected_home = Path(current_user.pw_dir)
+
+    old_env = os.environ.copy()
+    try:
+        os.environ["SUDO_USER"] = current_user.pw_name
+        mys = load_mys()
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+
+    old_env = os.environ.copy()
+    try:
+        os.environ["SUDO_USER"] = current_user.pw_name
+        assert mys["get_default_home"]() == expected_home
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+
+    assert mys["DEFAULT_REGISTRY_PATH"] == expected_home / ".local" / "share" / "mys" / "registry.tsv"
+    assert mys["DEFAULT_CONFIG_PATH"] == expected_home / ".config" / "mys" / "config.tsv"
 
 
 def test_install_permission_error_is_friendly(tmp_path: Path, capsys) -> None:

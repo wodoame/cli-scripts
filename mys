@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import pwd
 import stat
 import sys
 import tempfile
@@ -16,11 +17,21 @@ from pathlib import Path
 DEFAULT_REPO = "wodoame/cli-scripts"
 DEFAULT_BRANCH = "main"
 DEFAULT_BIN_DIR = Path("/usr/local/bin")
-DEFAULT_REGISTRY_PATH = Path.home() / ".local" / "share" / "mys" / "registry.tsv"
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "mys" / "config.tsv"
 SCRIPT_EXTENSIONS = {".py", ".sh"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
 CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
+
+
+def get_default_home() -> Path:
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        return Path(pwd.getpwnam(sudo_user).pw_dir)
+    return Path.home()
+
+
+DEFAULT_HOME = get_default_home()
+DEFAULT_REGISTRY_PATH = DEFAULT_HOME / ".local" / "share" / "mys" / "registry.tsv"
+DEFAULT_CONFIG_PATH = DEFAULT_HOME / ".config" / "mys" / "config.tsv"
 
 
 def build_raw_url(repo: str, branch: str, package_path: str) -> str:
