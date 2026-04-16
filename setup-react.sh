@@ -164,7 +164,7 @@ echo "Configuring source maps and debug scripts..."
 bun add -d cross-env
 
 cat <<'NODE_EOF' > modify_config.js
-const fs = require('fs');
+import fs from 'fs';
 
 // 1. Update package.json
 let pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
