@@ -57,6 +57,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+check_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "❌ Error: Required command '$1' is not installed."
+    echo "Please install $1 before running this script."
+    exit 1
+  fi
+}
+
+check_command uv
+
 # Prompt if no project name
 if [ -z "$PROJECT_NAME" ]; then
   read -p "Enter project name: " PROJECT_NAME
@@ -174,33 +184,6 @@ EOF
   sed -i "1i from .views import FrontendView" config/urls.py
   sed -i "/urlpatterns = \[/a\    path('', FrontendView.as_view())," config/urls.py
 
-  # Configure Vite output (overwrite)
-  echo "Configuring Vite build output..."
-
-  VITE_CONFIG="frontend/vite.config.ts"
-
-  if [ -f "$VITE_CONFIG" ]; then
-    cat <<'EOF' >"$VITE_CONFIG"
-import path from "path"
-import tailwindcss from "@tailwindcss/vite"
-import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
-
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  build: {
-    outDir: "dist",
-    assetsDir: "static",
-  },
-})
-EOF
-  fi
 
   echo "✅ Fullstack integration complete."
 fi

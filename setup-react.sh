@@ -53,6 +53,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+check_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "❌ Error: Required command '$1' is not installed."
+    echo "Please install $1 before running this script."
+    exit 1
+  fi
+}
+
+check_command bun
+check_command node
+if [ "$INIT_GIT" = true ]; then
+  check_command git
+fi
+
 # Prompt if no project name
 if [ -z "$PROJECT_NAME" ]; then
   read -p "Enter project name: " PROJECT_NAME
@@ -144,6 +158,50 @@ createRoot(document.getElementById("root")!).render(
 EOF
 
 fi
+
+# Debug and Sourcemap setup
+echo "Configuring source maps and debug scripts..."
+bun add -d cross-env
+
+cat <<'NODE_EOF' > modify_config.js
+const fs = require('fs');
+
+// 1. Update package.json
+let pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+pkg.scripts['build:watch'] = 'tsc -b --watch & vite build --watch';
+pkg.scripts['build:debug'] = 'cross-env VITE_SOURCEMAP=true tsc -b && cross-env VITE_SOURCEMAP=true vite build';
+fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+
+NODE_EOF
+
+node modify_config.js
+rm modify_config.js
+
+cat <<'EOF' > vite.config.ts
+import path from "path";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig, loadEnv } from "vite";
+
+// https://vite.dev/config/
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const enableSourcemap = env.VITE_SOURCEMAP === "true";
+
+  return {
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
+    },
+    build: {
+      sourcemap: enableSourcemap,
+      assetsDir: "static",
+    },
+  };
+});
+EOF
 
 # Git setup
 if [ "$INIT_GIT" = true ]; then
