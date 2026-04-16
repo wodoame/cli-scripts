@@ -13,11 +13,12 @@ sudo curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -
 sudo chmod +x /usr/local/bin/mys
 ```
 
-If you are using **Windows (Git Bash)**, you can safely install it into your user profile without elevated privileges:
+If you are using **Windows (Git Bash)**, you can safely install it into your user profile without elevated privileges. You'll also want to update the shebang to use `py`, as that is the standard Python launcher executable on Windows:
 
 ```bash
 mkdir -p ~/bin
 curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o ~/bin/mys
+sed -i '1s|.*|#!/usr/bin/env py|' ~/bin/mys
 ```
 
 After installing, you can update `mys` natively with:
