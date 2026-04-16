@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import pwd
+import shutil
 import stat
 import sys
 import tempfile
@@ -18,6 +19,7 @@ DEFAULT_REPO = "wodoame/cli-scripts"
 DEFAULT_BRANCH = "main"
 DEFAULT_BIN_DIR = Path("/usr/local/bin")
 SCRIPT_EXTENSIONS = {".py", ".sh"}
+SCRIPT_INTERPRETERS = {".py": "python3", ".sh": "bash"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
 CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
 
@@ -79,6 +81,17 @@ def ensure_shebang(content: bytes, package_path: str) -> bytes:
     if suffix == ".sh":
         return b"#!/usr/bin/env bash\n" + content
     return content
+
+
+def check_interpreter(package_path: str) -> None:
+    suffix = Path(package_path).suffix
+    interpreter = SCRIPT_INTERPRETERS.get(suffix)
+    if interpreter and not shutil.which(interpreter):
+        print(
+            f"mys warning: '{interpreter}' does not appear to be installed. "
+            f"The script '{Path(package_path).name}' may not run until it is installed.",
+            file=sys.stderr,
+        )
 
 
 def download_package(repo: str, branch: str, package_path: str) -> tuple[str, bytes] | None:
@@ -360,6 +373,7 @@ def install_package(args: argparse.Namespace) -> int:
     )
 
     print(f"Installed {args.package} as {destination}")
+    check_interpreter(args.package)
     return 0
 
 
@@ -396,6 +410,7 @@ def update_package(args: argparse.Namespace) -> int:
         destination,
     )
     print(f"Updated {args.package} at {destination}")
+    check_interpreter(args.package)
     return 0
 
 
@@ -507,6 +522,7 @@ def sync_registry(args: argparse.Namespace) -> int:
             install_path,
         )
         print(f"Synced {entry['command_name']} to {install_path}")
+        check_interpreter(entry["package_path"])
 
     return 0
 
