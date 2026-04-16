@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- 1. Initialize Variables ---
-DRY_RUN=false
+DRY_RUN=true
 TARGET_DIR=""
 # Declare arrays to hold our lists of rules
 declare -a prefixes_to_remove=()
@@ -20,7 +20,7 @@ show_help() {
   echo "If [DIRECTORY] is not provided, it defaults to the current directory."
   echo
   echo "Options:"
-  echo "  -d, --dry-run      Show what would be renamed without doing it."
+  echo "  -f, --force        Disable dry-run mode and apply changes permanently."
   echo "  -h, --help         Show this help message."
   echo "  -D, --disable-defaults  Skip the default cleanup rules (see below)."
   echo
@@ -39,8 +39,8 @@ show_help() {
   echo "     Use --disable-defaults to disable these steps."
   echo
   echo "Example:"
-  echo "  # Dry run in '~/books' to remove a prefix and a common suffix"
-  echo "  $0 -d --prefix '_oceanpdf.com_' --suffix '.epub' ~/books"
+  echo "  # Force rename in '~/books' to remove a prefix and a common suffix"
+  echo "  $0 -f --prefix '_oceanpdf.com_' --suffix '.epub' ~/books"
 }
 
 # --- 3. Parse Arguments ---
@@ -50,8 +50,8 @@ while [[ $# -gt 0 ]]; do
     show_help
     exit 0
     ;;
-  -d | --dry-run)
-    DRY_RUN=true
+  -f | --force)
+    DRY_RUN=false
     shift # Remove the flag
     ;;
   -p | --prefix)
