@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import pwd
 import shutil
 import stat
 import sys
@@ -17,7 +16,7 @@ from pathlib import Path
 
 DEFAULT_REPO = "wodoame/cli-scripts"
 DEFAULT_BRANCH = "main"
-DEFAULT_BIN_DIR = Path("/usr/local/bin")
+DEFAULT_BIN_DIR = Path.home() / "bin" if os.name == "nt" else Path("/usr/local/bin")
 SCRIPT_EXTENSIONS = {".py", ".sh"}
 SCRIPT_INTERPRETERS = {".py": "python3", ".sh": "bash"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
@@ -26,16 +25,23 @@ CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
 
 def get_default_home() -> Path:
     sudo_user = os.environ.get("SUDO_USER")
-    if sudo_user and sudo_user != "root":
+    if sudo_user and sudo_user != "root" and os.name != "nt":
+        import pwd
+
         return Path(pwd.getpwnam(sudo_user).pw_dir)
     return Path.home()
 
 
 def fix_ownership(path: Path) -> None:
+    if os.name == "nt":
+        return
+
     sudo_user = os.environ.get("SUDO_USER")
     if not sudo_user or sudo_user == "root":
         return
     try:
+        import pwd
+
         user_info = pwd.getpwnam(sudo_user)
         uid, gid = user_info.pw_uid, user_info.pw_gid
 
@@ -92,6 +98,31 @@ def check_interpreter(package_path: str) -> None:
             f"The script '{Path(package_path).name}' may not run until it is installed.",
             file=sys.stderr,
         )
+
+
+def check_path_env(bin_dir: Path) -> None:
+    path_env = os.environ.get("PATH", "")
+    paths = path_env.split(os.pathsep)
+    
+    try:
+        resolved_bin = bin_dir.resolve()
+        for p in paths:
+            if not p:
+                continue
+            try:
+                if Path(p).resolve() == resolved_bin:
+                    return
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    print(
+        f"mys warning: The installation directory '{bin_dir}' is not in your PATH environment variable.\n"
+        "You might need to add it to your profile (e.g. ~/.bashrc or system environment variables) "
+        "to execute installed commands.",
+        file=sys.stderr,
+    )
 
 
 def download_package(repo: str, branch: str, package_path: str) -> tuple[str, bytes] | None:
@@ -326,9 +357,10 @@ def write_installed_file(bin_dir: Path, package_path: str, command_name: str, co
 
 
 def print_install_permission_error(destination: Path) -> int:
+    sudo_suggestion = "try running with sudo or " if os.name != "nt" else ""
     print(
         "mys: permission denied while writing "
-        f"{destination}; try running with sudo or use '--bin-dir' to pick a writable directory",
+        f"{destination}; {sudo_suggestion}use '--bin-dir' to pick a writable directory",
         file=sys.stderr,
     )
     return 1
@@ -374,6 +406,7 @@ def install_package(args: argparse.Namespace) -> int:
 
     print(f"Installed {args.package} as {destination}")
     check_interpreter(args.package)
+    check_path_env(args.bin_dir)
     return 0
 
 

@@ -125,11 +125,18 @@ mys sync
 
 ## Bootstrapping
 
-To install `mys` itself directly from GitHub:
+To install `mys` itself directly from GitHub organically on **Unix/Linux**:
 
 ```bash
 sudo curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o /usr/local/bin/mys
 sudo chmod +x /usr/local/bin/mys
+```
+
+If you are using **Windows (Git Bash)**, you can safely install it into your user profile without elevated privileges:
+
+```bash
+mkdir -p ~/bin
+curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o ~/bin/mys
 ```
 
 After bootstrapping, update `mys` itself with:
