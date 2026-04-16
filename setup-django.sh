@@ -195,6 +195,46 @@ if [ "$USE_FULLSTACK" = true ] && [ "$REACT_CREATED" = false ]; then
   echo "⚠️ Skipping frontend-backend integration."
 fi
 
+# VS Code Setup
+echo "Creating VS Code launch configuration..."
+mkdir -p .vscode
+cat <<'EOF' >.vscode/launch.json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Django: Runserver",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["runserver", "8000"],
+      "django": true,
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DJANGO_SETTINGS_MODULE": "config.settings"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    },
+     {
+      "name": "Django: Tests",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["test"],
+      "django": true,
+      "justMyCode": true,
+      "env": {
+        "DJANGO_SETTINGS_MODULE": "config.settings"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    }
+  ]
+}
+EOF
+
 # Done
 echo ""
 echo "✅ Django project ready!"
