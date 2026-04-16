@@ -1,12 +1,12 @@
 #!/bin/sh
-'''exec' "`command -v python3 || command -v py || command -v python`" "$0" "$@"
+'''exec' "`case \"$(uname -s)\" in *MINGW*|*MSYS*|*CYGWIN*) command -v py || command -v python3 || command -v python ;; *) command -v python3 || command -v py || command -v python ;; esac`" "$0" "$@"
 ' '''
 
 from __future__ import annotations
 
 import argparse
 import os
-import shutil
+import shutil 
 import stat
 import sys
 import tempfile
