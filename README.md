@@ -2,6 +2,30 @@
 
 `mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `/usr/local/bin`, and tracks its installs in a local TSV registry that acts as the source of truth.
 
+## Installation
+
+> **Note:** `mys` relies on standard library features and requires **Python 3.8+** to be installed on your system.
+
+To install `mys` itself directly from GitHub natively on **Unix/Linux**:
+
+```bash
+sudo curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o /usr/local/bin/mys
+sudo chmod +x /usr/local/bin/mys
+```
+
+If you are using **Windows (Git Bash)**, you can safely install it into your user profile without elevated privileges:
+
+```bash
+mkdir -p ~/bin
+curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o ~/bin/mys
+```
+
+After installing, you can update `mys` natively with:
+
+```bash
+mys self-update
+```
+
 ## Why Python
 
 Python is the best fit for the first version because it can:
@@ -123,24 +147,4 @@ mys sync
 
 `mys import` merges entries by command name by default. Use `mys import --replace ...` if you want the imported registry to fully replace the local one.
 
-## Bootstrapping
 
-To install `mys` itself directly from GitHub organically on **Unix/Linux**:
-
-```bash
-sudo curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o /usr/local/bin/mys
-sudo chmod +x /usr/local/bin/mys
-```
-
-If you are using **Windows (Git Bash)**, you can safely install it into your user profile without elevated privileges:
-
-```bash
-mkdir -p ~/bin
-curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/mys -o ~/bin/mys
-```
-
-After bootstrapping, update `mys` itself with:
-
-```bash
-mys self-update
-```
