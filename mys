@@ -29,6 +29,27 @@ def get_default_home() -> Path:
     return Path.home()
 
 
+def fix_ownership(path: Path) -> None:
+    sudo_user = os.environ.get("SUDO_USER")
+    if not sudo_user or sudo_user == "root":
+        return
+    try:
+        user_info = pwd.getpwnam(sudo_user)
+        uid, gid = user_info.pw_uid, user_info.pw_gid
+
+        if path.exists():
+            os.chown(path, uid, gid)
+
+        current = path.parent
+        home = get_default_home()
+        while current != home and home in current.parents:
+            if current.exists() and current.stat().st_uid != uid:
+                os.chown(current, uid, gid)
+            current = current.parent
+    except Exception:
+        pass
+
+
 DEFAULT_HOME = get_default_home()
 DEFAULT_REGISTRY_PATH = DEFAULT_HOME / ".local" / "share" / "mys" / "registry.tsv"
 DEFAULT_CONFIG_PATH = DEFAULT_HOME / ".config" / "mys" / "config.tsv"
@@ -144,6 +165,7 @@ def save_config(config_path: Path, values: dict[str, str]) -> None:
             handle.write(f"{key}\t{values[key]}\n")
 
     temp_path.replace(config_path)
+    fix_ownership(config_path)
 
 
 def save_registry(registry_path: Path, entries: list[dict[str, str]]) -> None:
@@ -161,6 +183,7 @@ def save_registry(registry_path: Path, entries: list[dict[str, str]]) -> None:
             handle.write(f"{row}\n")
 
     temp_path.replace(registry_path)
+    fix_ownership(registry_path)
 
 
 def normalize_registry_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
