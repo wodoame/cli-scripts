@@ -21,6 +21,7 @@ DEFAULT_BIN_DIR = Path.home() / "bin" if os.name == "nt" else Path("/usr/local/b
 def _get_python_exe() -> str:
     if os.name == "nt":
         if shutil.which("py"):
+            return "py"
     else:
         if shutil.which("python3"):
             return "python3"
