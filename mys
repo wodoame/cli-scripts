@@ -19,13 +19,14 @@ DEFAULT_BRANCH = "main"
 DEFAULT_BIN_DIR = Path.home() / "bin" if os.name == "nt" else Path("/usr/local/bin")
 
 def _get_python_exe() -> str:
-    if shutil.which("python3"):
+    if os.name == "nt":
+        if shutil.which("py"):
+    else:
+        if shutil.which("python3"):
+            return "python3"
+        if shutil.which("python"):
+            return "python"
         return "python3"
-    if shutil.which("py"):
-        return "py"
-    if shutil.which("python"):
-        return "python"
-    return "python3"
 
 
 PYTHON_EXE = _get_python_exe()
