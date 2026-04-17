@@ -22,12 +22,12 @@ def _get_python_exe() -> str:
     if os.name == "nt":
         if shutil.which("py"):
             return "py"
-    else:
-        if shutil.which("python3"):
-            return "python3"
-        if shutil.which("python"):
-            return "python"
+
+    if shutil.which("python3"):
         return "python3"
+    if shutil.which("python"):
+        return "python"
+    return "python3"
 
 
 PYTHON_EXE = _get_python_exe()
