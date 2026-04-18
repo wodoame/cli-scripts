@@ -235,6 +235,12 @@ cat <<'EOF' >.vscode/launch.json
 }
 EOF
 
+# Frontend production build (when React scaffold succeeded)
+if [ "$REACT_CREATED" = true ]; then
+  echo "Building frontend..."
+  (cd "$FRONTEND_NAME" && bun run build)
+fi
+
 # Done
 echo ""
 echo "✅ Django project ready!"
