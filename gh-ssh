@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_NAME="gh-ssh"
+DEFAULT_KEY_TYPE="ed25519"
+DEFAULT_KEY_NAME="github"
+
+show_help() {
+  cat <<'EOF'
+Usage: gh-ssh [options]
+
+Generate a GitHub SSH key pair and wire an SSH alias into ~/.ssh/config.
+
+Options:
+  -e, --email EMAIL        Key comment for ssh-keygen. Prompt if missing.
+  -a, --alias ALIAS        SSH host alias to add to config. Prompt if missing.
+  -k, --key-name NAME      Base key file name inside ~/.ssh (default: github).
+      --show-config        Print the SSH config file and exit.
+      --ssh-dir DIR        SSH directory to use (default: ~/.ssh).
+      --config-path PATH   SSH config path to use (default: ~/.ssh/config).
+  -t, --type TYPE          SSH key type (default: ed25519).
+  -h, --help               Show this help message.
+
+Examples:
+  gh-ssh
+  gh-ssh --show-config
+  gh-ssh --email you@example.com --alias github-work
+  gh-ssh --alias github-personal --key-name personal-github
+EOF
+}
+
+error() {
+  echo "Error: $*" >&2
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    error "required command '$1' is not installed."
+    exit 1
+  fi
+}
+
+prompt_if_missing() {
+  local current_value="$1"
+  local prompt_text="$2"
+  local input=""
+
+  if [ -n "$current_value" ]; then
+    printf '%s\n' "$current_value"
+    return 0
+  fi
+
+  read -r -p "$prompt_text" input
+  printf '%s\n' "$input"
+}
+
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+validate_non_empty() {
+  local value
+  value="$(trim_whitespace "$1")"
+  local field_name="$2"
+
+  if [ -z "$value" ]; then
+    error "$field_name cannot be empty."
+    exit 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
+validate_alias() {
+  local alias_value
+  alias_value="$(validate_non_empty "$1" "alias")"
+
+  if [[ "$alias_value" =~ [[:space:]] ]]; then
+    error "alias must not contain whitespace."
+    exit 1
+  fi
+
+  printf '%s\n' "$alias_value"
+}
+
+validate_key_name() {
+  local key_name_value
+  key_name_value="$(validate_non_empty "$1" "key name")"
+
+  if [[ "$key_name_value" == */* ]]; then
+    error "key name must be a file name, not a path."
+    exit 1
+  fi
+
+  if [[ "$key_name_value" =~ [[:space:]] ]]; then
+    error "key name must not contain whitespace."
+    exit 1
+  fi
+
+  printf '%s\n' "$key_name_value"
+}
+
+expand_path() {
+  local path_value="$1"
+  if [ "$path_value" = "~" ]; then
+    printf '%s\n' "$HOME"
+  elif [[ "$path_value" == "~/"* ]]; then
+    printf '%s\n' "$HOME/${path_value:2}"
+  else
+    printf '%s\n' "$path_value"
+  fi
+}
+
+ensure_ssh_dir() {
+  local ssh_dir="$1"
+  mkdir -p "$ssh_dir"
+  chmod 700 "$ssh_dir"
+}
+
+next_key_path() {
+  local ssh_dir="$1"
+  local base_name="$2"
+  local candidate="$ssh_dir/$base_name"
+  local suffix=1
+
+  while [ -e "$candidate" ] || [ -e "${candidate}.pub" ]; do
+    candidate="$ssh_dir/${base_name}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+
+  printf '%s\n' "$candidate"
+}
+
+managed_start_marker() {
+  printf '# >>> gh-ssh alias: %s >>>\n' "$1"
+}
+
+managed_end_marker() {
+  printf '# <<< gh-ssh alias: %s <<<\n' "$1"
+}
+
+build_managed_block() {
+  local alias_name="$1"
+  local identity_file="$2"
+
+  cat <<EOF
+$(managed_start_marker "$alias_name")
+Host $alias_name
+  HostName github.com
+  User git
+  IdentityFile $identity_file
+  IdentitiesOnly yes
+$(managed_end_marker "$alias_name")
+EOF
+}
+
+alias_conflicts_with_unmanaged_host() {
+  local config_path="$1"
+  local alias_name="$2"
+
+  if [ ! -f "$config_path" ]; then
+    return 1
+  fi
+
+  awk -v alias_name="$alias_name" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+
+    {
+      line = $0
+      trimmed = trim(line)
+
+      if (trimmed ~ /^# >>> gh-ssh alias: .* >>>$/) {
+        in_managed_block = 1
+        next
+      }
+
+      if (trimmed ~ /^# <<< gh-ssh alias: .* <<</) {
+        in_managed_block = 0
+        next
+      }
+
+      if (in_managed_block) {
+        next
+      }
+
+      if (trimmed ~ /^Host[[:space:]]+/) {
+        sub(/^Host[[:space:]]+/, "", trimmed)
+        split(trimmed, parts, /[[:space:]]+/)
+        for (idx in parts) {
+          if (parts[idx] == alias_name) {
+            found = 1
+            exit
+          }
+        }
+      }
+    }
+
+    END {
+      exit found ? 0 : 1
+    }
+  ' "$config_path"
+}
+
+upsert_managed_alias_block() {
+  local config_path="$1"
+  local alias_name="$2"
+  local identity_file="$3"
+  local temp_file
+  local block
+  local start_marker
+  local end_marker
+
+  start_marker="$(managed_start_marker "$alias_name")"
+  end_marker="$(managed_end_marker "$alias_name")"
+  block="$(build_managed_block "$alias_name" "$identity_file")"
+  mkdir -p "$(dirname "$config_path")"
+
+  if alias_conflicts_with_unmanaged_host "$config_path" "$alias_name"; then
+    error "alias '$alias_name' already exists in $config_path outside a gh-ssh managed block."
+    exit 1
+  fi
+
+  if [ ! -f "$config_path" ]; then
+    printf '%s\n' "$block" >"$config_path"
+    chmod 600 "$config_path"
+    return 0
+  fi
+
+  temp_file="$(mktemp)"
+  awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v block="$block" '
+    BEGIN {
+      in_target = 0
+      replaced = 0
+    }
+
+    $0 == start_marker {
+      if (!replaced) {
+        print block
+        replaced = 1
+      }
+      in_target = 1
+      next
+    }
+
+    in_target && $0 == end_marker {
+      in_target = 0
+      next
+    }
+
+    in_target {
+      next
+    }
+
+    {
+      print
+    }
+
+    END {
+      if (!replaced) {
+        if (NR > 0) {
+          print ""
+        }
+        print block
+      }
+    }
+  ' "$config_path" >"$temp_file"
+
+  mv "$temp_file" "$config_path"
+  chmod 600 "$config_path"
+}
+
+generate_keypair() {
+  local key_type="$1"
+  local email="$2"
+  local key_path="$3"
+
+  ssh-keygen -t "$key_type" -C "$email" -f "$key_path"
+}
+
+print_summary() {
+  local private_key_path="$1"
+  local alias_name="$2"
+
+  cat <<EOF
+
+SSH key created.
+Private key: $private_key_path
+Public key: ${private_key_path}.pub
+Alias: $alias_name
+
+Next steps:
+  1. Add ${private_key_path}.pub to your GitHub account.
+  2. Use git@$alias_name:OWNER/REPO.git for clone and push URLs.
+  3. Verify with: ssh -T git@$alias_name
+EOF
+}
+
+show_config() {
+  local config_path="$1"
+
+  if [ ! -f "$config_path" ]; then
+    error "SSH config not found at $config_path."
+    exit 1
+  fi
+
+  cat "$config_path"
+}
+
+main() {
+  local email=""
+  local alias_name=""
+  local key_name="$DEFAULT_KEY_NAME"
+  local ssh_dir="~/.ssh"
+  local config_path=""
+  local key_type="$DEFAULT_KEY_TYPE"
+  local key_path=""
+  local show_config_only=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -e | --email)
+      if [ $# -lt 2 ]; then
+        error "$1 requires a value."
+        exit 1
+      fi
+      email="$2"
+      shift 2
+      ;;
+    -a | --alias)
+      if [ $# -lt 2 ]; then
+        error "$1 requires a value."
+        exit 1
+      fi
+      alias_name="$2"
+      shift 2
+      ;;
+    -k | --key-name)
+      if [ $# -lt 2 ]; then
+        error "$1 requires a value."
+        exit 1
+      fi
+      key_name="$2"
+      shift 2
+      ;;
+    --show-config)
+      show_config_only=true
+      shift
+      ;;
+    --ssh-dir)
+      if [ $# -lt 2 ]; then
+        error "$1 requires a value."
+        exit 1
+      fi
+      ssh_dir="$2"
+      shift 2
+      ;;
+    --config-path)
+      if [ $# -lt 2 ]; then
+        error "$1 requires a value."
+        exit 1
+      fi
+      config_path="$2"
+      shift 2
+      ;;
+    -t | --type)
+      if [ $# -lt 2 ]; then
+        error "$1 requires a value."
+        exit 1
+      fi
+      key_type="$2"
+      shift 2
+      ;;
+    -h | --help)
+      show_help
+      exit 0
+      ;;
+    *)
+      error "unknown argument: $1"
+      exit 1
+      ;;
+    esac
+  done
+
+  ssh_dir="$(expand_path "$ssh_dir")"
+
+  if [ -z "$config_path" ]; then
+    config_path="$ssh_dir/config"
+  else
+    config_path="$(expand_path "$config_path")"
+  fi
+
+  if [ "$show_config_only" = true ]; then
+    show_config "$config_path"
+    exit 0
+  fi
+
+  require_command ssh-keygen
+
+  email="$(prompt_if_missing "$email" "GitHub email/comment: ")"
+  alias_name="$(prompt_if_missing "$alias_name" "SSH alias (example: github-work): ")"
+
+  email="$(validate_non_empty "$email" "email")"
+  alias_name="$(validate_alias "$alias_name")"
+  key_name="$(validate_key_name "$key_name")"
+  ensure_ssh_dir "$ssh_dir"
+
+  key_path="$(next_key_path "$ssh_dir" "$key_name")"
+  generate_keypair "$key_type" "$email" "$key_path"
+  upsert_managed_alias_block "$config_path" "$alias_name" "$key_path"
+  print_summary "$key_path" "$alias_name"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

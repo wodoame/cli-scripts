@@ -1,4 +1,13 @@
-# mys
+# cli-scripts
+
+This repo contains small personal CLI utilities and setup scripts.
+
+## Tools
+
+- `gh-ssh`: Generate GitHub SSH keys and add/update a matching SSH alias in `~/.ssh/config`. See [docs/gh-ssh.md](docs/gh-ssh.md).
+- `mys`: Install and update one script at a time from GitHub into `/usr/local/bin`. See [docs/mys.md](docs/mys.md).
+
+## mys
 
 `mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `/usr/local/bin`, and tracks its installs in a local TSV registry that acts as the source of truth.
 
@@ -147,5 +156,4 @@ mys sync
 ```
 
 `mys import` merges entries by command name by default. Use `mys import --replace ...` if you want the imported registry to fully replace the local one.
-
 
