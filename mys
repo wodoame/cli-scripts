@@ -31,8 +31,8 @@ def _get_python_exe() -> str:
 
 
 PYTHON_EXE = _get_python_exe()
-SCRIPT_EXTENSIONS = {".py", ".sh"}
-SCRIPT_INTERPRETERS = {".py": PYTHON_EXE, ".sh": "bash"}
+SCRIPT_EXTENSIONS = {".py", ".sh", ".mjs"}
+SCRIPT_INTERPRETERS = {".py": PYTHON_EXE, ".sh": "bash", ".mjs": "node"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
 CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
 
@@ -110,6 +110,8 @@ def ensure_shebang(content: bytes, package_path: str) -> bytes:
     if not content.startswith(b"#!"):
         if suffix == ".sh":
             return b"#!/usr/bin/env bash\n" + content
+        if suffix == ".mjs":
+            return b"#!/usr/bin/env node\n" + content
 
     return content
 

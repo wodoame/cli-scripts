@@ -48,6 +48,42 @@ def test_install_records_registry_entry(tmp_path: Path) -> None:
     )
 
 
+def test_install_mjs_strips_extension_and_adds_node_shebang(tmp_path: Path) -> None:
+    mys = load_mys()
+    registry_path = tmp_path / "registry.tsv"
+    bin_dir = tmp_path / "bin"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        package="schema.mjs",
+        keep_extension=False,
+        as_name=None,
+        bin_dir=bin_dir,
+        registry_path=registry_path,
+    )
+
+    mys["install_package"].__globals__["download_package"] = lambda repo, branch, package: (
+        "mock",
+        b"process.stdout.write('ok\\n');\n",
+    )
+
+    exit_code = mys["install_package"](args)
+
+    assert exit_code == 0
+    installed = bin_dir / "schema"
+    assert installed.exists()
+    assert installed.read_bytes().startswith(b"#!/usr/bin/env node\n")
+    assert registry_path.read_text(encoding="utf-8").strip() == "\t".join(
+        [
+            "schema",
+            "schema.mjs",
+            "wodoame/cli-scripts",
+            "main",
+            str(installed),
+        ]
+    )
+
+
 def test_remove_refuses_unregistered_command(tmp_path: Path, capsys) -> None:
     mys = load_mys()
     bin_dir = tmp_path / "bin"

@@ -8,7 +8,7 @@ Python is the best fit for the first version because it can:
 
 - make HTTP requests with the standard library
 - handle file permissions cleanly
-- work well with both `.py` and `.sh` scripts in this repo
+- work well with `.py`, `.sh`, and `.mjs` scripts in this repo
 - stay dependency-free
 
 ## Package Naming
@@ -18,11 +18,13 @@ The package name is the relative file path in the GitHub repo:
 - `mys install text_search.py`
 - `mys install compile_with_argparser.sh`
 - `mys install linux/dirtree.py`
+- `mys install schema.mjs`
 
-By default, `mys` removes `.py` and `.sh` from the installed command name:
+By default, `mys` removes `.py`, `.sh`, and `.mjs` from the installed command name:
 
 - `mys install text_search.py` installs `/usr/local/bin/text_search`
 - `mys install compile_with_argparser.sh` installs `/usr/local/bin/compile_with_argparser`
+- `mys install schema.mjs` installs `/usr/local/bin/schema`
 
 Use `--keep-extension` if you want the original file name preserved.
 
@@ -32,7 +34,7 @@ Use `--keep-extension` if you want the original file name preserved.
 
 1. builds a raw GitHub URL from `owner/repo`, branch, and package path
 2. downloads only that file
-3. prepends a shebang for `.py` and `.sh` if the file does not already have one
+3. prepends a shebang for `.py`, `.sh`, and `.mjs` if the file does not already have one
 4. marks the installed file executable
 5. writes it into `/usr/local/bin`
 6. records the install in `~/.local/share/mys/registry.tsv`
