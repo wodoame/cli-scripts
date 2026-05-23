@@ -473,6 +473,9 @@ function usage() {
       '',
       `Services: ${SERVICES.join(', ')}`,
       'JWT for update: env ARMS_INTROSPECTION_JWT or --token flag.',
+      'Overrides:',
+      '  ARMS_ENV_PATH: path to the backend .env file.',
+      '  ARMS_SCHEMA_DIR: path to the directory containing service schema JSON files.',
     ].join('\n') + '\n'
   );
 }
