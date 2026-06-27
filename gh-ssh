@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="gh-ssh"
-VERSION="1.0.0"
+VERSION="1.0.1"
 DEFAULT_KEY_TYPE="ed25519"
 DEFAULT_KEY_NAME="github"
 
