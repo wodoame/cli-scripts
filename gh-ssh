@@ -3,6 +3,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="gh-ssh"
+VERSION="1.0.0"
 DEFAULT_KEY_TYPE="ed25519"
 DEFAULT_KEY_NAME="github"
 
@@ -28,6 +29,7 @@ Options (generate):
       --ssh-dir DIR        SSH directory to use (default: ~/.ssh).
       --config-path PATH   SSH config path to use (default: ~/.ssh/config).
   -t, --type TYPE          SSH key type (default: ed25519).
+  -v, --version            Show version and exit.
   -h, --help               Show this help message.
 
 Options (delete):
@@ -494,6 +496,7 @@ show_config() {
 main() {
   if [[ $# -gt 0 ]]; then
     case "$1" in
+    -v | --version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
     list)   shift; cmd_list "$@";   return ;;
     delete) shift; cmd_delete "$@"; return ;;
     esac
