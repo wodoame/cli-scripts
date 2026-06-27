@@ -125,6 +125,20 @@ mys sync
 
 `mys import` merges entries by command name by default. Use `mys import --replace ...` if you want the imported registry to fully replace the local one.
 
+## Shell Completion
+
+A bash completion script is included at `completions/mys.bash`. It completes commands, flags, and — for `mys remove` — dynamically reads installed command names from the registry.
+
+Install it for your user (no `.bashrc` edit needed; bash-completion 2.x sources this directory automatically):
+
+```bash
+mkdir -p ~/.local/share/bash-completion/completions
+curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/completions/mys.bash \
+     -o ~/.local/share/bash-completion/completions/mys
+```
+
+Open a new shell and tab completion is active.
+
 ## Bootstrapping
 
 To install `mys` itself directly from GitHub:
