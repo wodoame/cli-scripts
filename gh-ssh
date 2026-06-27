@@ -9,10 +9,18 @@ DEFAULT_KEY_NAME="github"
 show_help() {
   cat <<'EOF'
 Usage: gh-ssh [options]
+       gh-ssh list [--config-path PATH]
+       gh-ssh delete --alias ALIAS [--yes] [--config-only] [--config-path PATH]
 
 Generate a GitHub SSH key pair and wire an SSH alias into ~/.ssh/config.
 
-Options:
+Commands:
+  list                     List all gh-ssh managed aliases in the SSH config.
+  delete                   Remove a managed alias. Deletes the config block and
+                           key files by default; use --config-only to remove
+                           only the config block and keep the key files.
+
+Options (generate):
   -e, --email EMAIL        Key comment for ssh-keygen. Prompt if missing.
   -a, --alias ALIAS        SSH host alias to add to config. Prompt if missing.
   -k, --key-name NAME      Base key file name inside ~/.ssh (default: github).
@@ -22,11 +30,21 @@ Options:
   -t, --type TYPE          SSH key type (default: ed25519).
   -h, --help               Show this help message.
 
+Options (delete):
+  -a, --alias ALIAS        Alias to delete. Prompt if missing.
+  -y, --yes                Skip confirmation prompt.
+      --config-only        Remove only the config block; keep the key files.
+      --config-path PATH   SSH config path to use (default: ~/.ssh/config).
+
 Examples:
   gh-ssh
   gh-ssh --show-config
   gh-ssh --email you@example.com --alias github-work
   gh-ssh --alias github-personal --key-name personal-github
+  gh-ssh list
+  gh-ssh delete --alias github-work
+  gh-ssh delete --alias github-work --config-only
+  gh-ssh delete --alias github-work --yes
 EOF
 }
 
@@ -277,6 +295,165 @@ upsert_managed_alias_block() {
   chmod 600 "$config_path"
 }
 
+list_managed_aliases() {
+  local config_path="$1"
+
+  if [ ! -f "$config_path" ]; then
+    return 0
+  fi
+
+  awk '
+    /^# >>> gh-ssh alias: / {
+      line = $0
+      sub(/^# >>> gh-ssh alias: /, "", line)
+      sub(/ >>>$/, "", line)
+      current_alias = line
+    }
+    current_alias && /^[[:space:]]*IdentityFile[[:space:]]/ {
+      sub(/^[[:space:]]*IdentityFile[[:space:]]+/, "", $0)
+      print current_alias "\t" $0
+      current_alias = ""
+    }
+  ' "$config_path"
+}
+
+get_managed_alias_identity() {
+  local config_path="$1"
+  local alias_name="$2"
+
+  list_managed_aliases "$config_path" | awk -F'\t' -v alias="$alias_name" '$1 == alias { print $2; exit }'
+}
+
+remove_managed_alias_block() {
+  local config_path="$1"
+  local alias_name="$2"
+  local start_marker end_marker temp_file
+
+  start_marker="$(managed_start_marker "$alias_name")"
+  end_marker="$(managed_end_marker "$alias_name")"
+  temp_file="$(mktemp)"
+
+  awk -v start="$start_marker" -v end="$end_marker" '
+    $0 == start { skip = 1; next }
+    $0 == end   { skip = 0; next }
+    !skip        { print }
+  ' "$config_path" >"$temp_file"
+
+  mv "$temp_file" "$config_path"
+  chmod 600 "$config_path"
+}
+
+cmd_list() {
+  local config_path="~/.ssh/config"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --config-path)
+      if [ $# -lt 2 ]; then error "$1 requires a value."; exit 1; fi
+      config_path="$2"; shift 2 ;;
+    -h | --help) show_help; exit 0 ;;
+    *) error "unknown argument: $1"; exit 1 ;;
+    esac
+  done
+
+  config_path="$(expand_path "$config_path")"
+
+  if [ ! -f "$config_path" ]; then
+    echo "No SSH config found at $config_path."
+    return 0
+  fi
+
+  local entries
+  entries="$(list_managed_aliases "$config_path")"
+
+  if [ -z "$entries" ]; then
+    echo "No gh-ssh managed aliases found in $config_path."
+    return 0
+  fi
+
+  printf '%-30s %s\n' "ALIAS" "IDENTITY FILE"
+  printf '%-30s %s\n' "-----" "-------------"
+  while IFS=$'\t' read -r alias identity; do
+    printf '%-30s %s\n' "$alias" "$identity"
+  done <<< "$entries"
+}
+
+cmd_delete() {
+  local alias_name=""
+  local config_path="~/.ssh/config"
+  local confirmed=false
+  local config_only=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -a | --alias)
+      if [ $# -lt 2 ]; then error "$1 requires a value."; exit 1; fi
+      alias_name="$2"; shift 2 ;;
+    -y | --yes)
+      confirmed=true; shift ;;
+    --config-only)
+      config_only=true; shift ;;
+    --config-path)
+      if [ $# -lt 2 ]; then error "$1 requires a value."; exit 1; fi
+      config_path="$2"; shift 2 ;;
+    -h | --help) show_help; exit 0 ;;
+    *) error "unknown argument: $1"; exit 1 ;;
+    esac
+  done
+
+  config_path="$(expand_path "$config_path")"
+
+  alias_name="$(prompt_if_missing "$alias_name" "Alias to delete: ")"
+  alias_name="$(validate_alias "$alias_name")"
+
+  local identity
+  identity="$(get_managed_alias_identity "$config_path" "$alias_name")"
+
+  if [ -z "$identity" ]; then
+    error "alias '$alias_name' not found as a gh-ssh managed block in $config_path."
+    exit 1
+  fi
+
+  echo "Alias:        $alias_name"
+  echo "Config:       $config_path"
+  if [ "$config_only" = true ]; then
+    echo "Action:       remove config block only (key files kept)"
+  else
+    echo "Private key:  $identity"
+    echo "Public key:   ${identity}.pub"
+    echo "Action:       remove config block and delete key files"
+  fi
+
+  if [ "$confirmed" = false ]; then
+    local answer
+    read -r -p "Confirm? [y/N] " answer
+    case "$answer" in
+    [yY] | [yY][eE][sS]) ;;
+    *) echo "Cancelled."; exit 0 ;;
+    esac
+  fi
+
+  remove_managed_alias_block "$config_path" "$alias_name"
+  echo "Removed managed block for '$alias_name' from $config_path."
+
+  if [ "$config_only" = false ]; then
+    local deleted=false
+    if [ -f "$identity" ]; then
+      rm "$identity"
+      echo "Deleted private key: $identity"
+      deleted=true
+    fi
+    if [ -f "${identity}.pub" ]; then
+      rm "${identity}.pub"
+      echo "Deleted public key:  ${identity}.pub"
+      deleted=true
+    fi
+    if [ "$deleted" = false ]; then
+      echo "Note: key files not found at $identity (already removed?)."
+    fi
+  fi
+}
+
 generate_keypair() {
   local key_type="$1"
   local email="$2"
@@ -315,6 +492,13 @@ show_config() {
 }
 
 main() {
+  if [[ $# -gt 0 ]]; then
+    case "$1" in
+    list)   shift; cmd_list "$@";   return ;;
+    delete) shift; cmd_delete "$@"; return ;;
+    esac
+  fi
+
   local email=""
   local alias_name=""
   local key_name="$DEFAULT_KEY_NAME"

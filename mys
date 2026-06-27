@@ -99,6 +99,14 @@ def parse_package_arg(package: str) -> tuple[str, str | None]:
     return package, None
 
 
+def build_version_tag(package_path: str, version: str) -> str:
+    """Construct a per-file git tag from a package path and version.
+
+    'linux/dirtree.py', '1.0.0' -> 'linux/dirtree.py-1.0.0'
+    """
+    return f"{package_path}-{version}"
+
+
 def ensure_shebang(content: bytes, package_path: str) -> bytes:
     suffix = Path(package_path).suffix
 
@@ -417,7 +425,7 @@ def ensure_bin_dir_writable(bin_dir: Path, command_name: str) -> int | None:
 
 def install_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = version or args.branch
+    branch = build_version_tag(package, version) if version else args.branch
     command_name = args.as_name or derive_command_name(package, args.keep_extension)
     if error_code := ensure_bin_dir_writable(args.bin_dir, command_name):
         return error_code
@@ -449,7 +457,7 @@ def install_package(args: argparse.Namespace) -> int:
 
 def update_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = version or args.branch
+    branch = build_version_tag(package, version) if version else args.branch
     command_name = args.as_name or derive_command_name(package, args.keep_extension)
     destination = args.bin_dir / command_name
     if not destination.exists():
@@ -601,7 +609,7 @@ def sync_registry(args: argparse.Namespace) -> int:
 
 def print_url(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = version or args.branch
+    branch = build_version_tag(package, version) if version else args.branch
     print(build_raw_url(args.repo, branch, package))
     return 0
 
