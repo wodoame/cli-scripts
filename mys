@@ -35,6 +35,8 @@ SCRIPT_EXTENSIONS = {".py", ".sh", ".mjs"}
 SCRIPT_INTERPRETERS = {".py": PYTHON_EXE, ".sh": "bash", ".mjs": "node"}
 REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_path")
 CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
+VERSIONS_MANIFEST_PATH = "versions.tsv"
+LATEST_VERSION_KEYWORD = "latest"
 
 
 def get_default_home() -> Path:
@@ -105,6 +107,56 @@ def build_version_tag(package_path: str, version: str) -> str:
     'linux/dirtree.py', '1.0.0' -> 'linux/dirtree.py-1.0.0'
     """
     return f"{package_path}-{version}"
+
+
+def parse_versions_manifest(text: str) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        parts = line.split("\t")
+        if len(parts) != 2:
+            print(
+                f"mys: ignoring malformed versions.tsv entry at line {line_number}",
+                file=sys.stderr,
+            )
+            continue
+
+        package_path, version = parts
+        versions[package_path] = version
+
+    return versions
+
+
+def resolve_latest_version(repo: str, branch: str, package_path: str) -> str | None:
+    downloaded = download_package(repo, branch, VERSIONS_MANIFEST_PATH)
+    if downloaded is None:
+        return None
+
+    _, content = downloaded
+    versions = parse_versions_manifest(content.decode("utf-8"))
+    return versions.get(package_path)
+
+
+def resolve_branch_for_package(
+    repo: str, branch: str, package: str, version: str | None
+) -> str | None:
+    if version is None:
+        return branch
+
+    if version == LATEST_VERSION_KEYWORD:
+        resolved_version = resolve_latest_version(repo, branch, package)
+        if resolved_version is None:
+            print(
+                f"mys: no released version found for {package}; cannot resolve @latest",
+                file=sys.stderr,
+            )
+            return None
+        version = resolved_version
+
+    return build_version_tag(package, version)
 
 
 def ensure_shebang(content: bytes, package_path: str) -> bytes:
@@ -425,7 +477,9 @@ def ensure_bin_dir_writable(bin_dir: Path, command_name: str) -> int | None:
 
 def install_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = build_version_tag(package, version) if version else args.branch
+    branch = resolve_branch_for_package(args.repo, args.branch, package, version)
+    if branch is None:
+        return 1
     command_name = args.as_name or derive_command_name(package, args.keep_extension)
     if error_code := ensure_bin_dir_writable(args.bin_dir, command_name):
         return error_code
@@ -457,7 +511,9 @@ def install_package(args: argparse.Namespace) -> int:
 
 def update_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = build_version_tag(package, version) if version else args.branch
+    branch = resolve_branch_for_package(args.repo, args.branch, package, version)
+    if branch is None:
+        return 1
     command_name = args.as_name or derive_command_name(package, args.keep_extension)
     destination = args.bin_dir / command_name
     if not destination.exists():
@@ -609,7 +665,9 @@ def sync_registry(args: argparse.Namespace) -> int:
 
 def print_url(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = build_version_tag(package, version) if version else args.branch
+    branch = resolve_branch_for_package(args.repo, args.branch, package, version)
+    if branch is None:
+        return 1
     print(build_raw_url(args.repo, branch, package))
     return 0
 
@@ -693,7 +751,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     install_parser = subparsers.add_parser("install", help="Download and install a script.")
     install_parser.add_argument(
         "package",
-        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Append @version to pin a tag or branch, e.g. text_search.py@v1.0.0.",
+        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Append @version to pin a tag or branch, e.g. text_search.py@v1.0.0, or @latest to resolve the newest released version from versions.tsv.",
     )
     install_parser.add_argument("--as", dest="as_name", help="Override the installed command name.")
     install_parser.add_argument(
@@ -706,7 +764,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     update_parser = subparsers.add_parser("update", help="Download and overwrite an installed script.")
     update_parser.add_argument(
         "package",
-        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Append @version to pin a tag or branch, e.g. text_search.py@v1.0.0.",
+        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Append @version to pin a tag or branch, e.g. text_search.py@v1.0.0, or @latest to resolve the newest released version from versions.tsv.",
     )
     update_parser.add_argument("--as", dest="as_name", help="Installed command name to overwrite.")
     update_parser.add_argument(
@@ -745,7 +803,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     sync_parser.set_defaults(func=sync_registry)
 
     url_parser = subparsers.add_parser("url", help="Print the raw GitHub URL for a package path.")
-    url_parser.add_argument("package", help="Relative file path in the GitHub repo. Append @version to resolve a specific tag or branch, e.g. text_search.py@v1.0.0.")
+    url_parser.add_argument("package", help="Relative file path in the GitHub repo. Append @version to resolve a specific tag or branch, e.g. text_search.py@v1.0.0, or @latest to resolve the newest released version from versions.tsv.")
     url_parser.set_defaults(func=print_url)
 
     config_parser = subparsers.add_parser("config", help="Print or update the active mys configuration.")

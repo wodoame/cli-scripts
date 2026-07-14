@@ -84,6 +84,104 @@ def test_install_mjs_strips_extension_and_adds_node_shebang(tmp_path: Path) -> N
     )
 
 
+def test_parse_versions_manifest_skips_malformed_lines(capsys) -> None:
+    mys = load_mys()
+    parse_versions_manifest = mys["parse_versions_manifest"]
+
+    versions = parse_versions_manifest("gh-ssh\t1.0.1\n\nbad-line\ntext_search.py\t2.0.0\n")
+    captured = capsys.readouterr()
+
+    assert versions == {"gh-ssh": "1.0.1", "text_search.py": "2.0.0"}
+    assert "malformed versions.tsv entry" in captured.err
+
+
+def test_resolve_branch_for_package_variants(capsys) -> None:
+    mys = load_mys()
+    resolve_branch_for_package = mys["resolve_branch_for_package"]
+
+    assert resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", None) == "main"
+    assert (
+        resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", "1.0.0")
+        == "gh-ssh-1.0.0"
+    )
+
+    mys["resolve_branch_for_package"].__globals__["resolve_latest_version"] = (
+        lambda repo, branch, package: "1.0.1"
+    )
+    assert (
+        resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", "latest")
+        == "gh-ssh-1.0.1"
+    )
+
+    mys["resolve_branch_for_package"].__globals__["resolve_latest_version"] = (
+        lambda repo, branch, package: None
+    )
+    result = resolve_branch_for_package("wodoame/cli-scripts", "main", "unreleased.py", "latest")
+    captured = capsys.readouterr()
+
+    assert result is None
+    assert "cannot resolve @latest" in captured.err
+
+
+def test_install_resolves_latest_version(tmp_path: Path) -> None:
+    mys = load_mys()
+    registry_path = tmp_path / "registry.tsv"
+    bin_dir = tmp_path / "bin"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        package="gh-ssh@latest",
+        keep_extension=False,
+        as_name=None,
+        bin_dir=bin_dir,
+        registry_path=registry_path,
+    )
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        if package == "versions.tsv":
+            return "mock", b"gh-ssh\t1.0.1\n"
+        return "mock", b"#!/usr/bin/env bash\necho hi\n"
+
+    mys["install_package"].__globals__["download_package"] = fake_download_package
+
+    exit_code = mys["install_package"](args)
+
+    assert exit_code == 0
+    assert registry_path.read_text(encoding="utf-8").strip() == "\t".join(
+        [
+            "gh-ssh",
+            "gh-ssh",
+            "wodoame/cli-scripts",
+            "gh-ssh-1.0.1",
+            str(bin_dir / "gh-ssh"),
+        ]
+    )
+
+
+def test_install_latest_without_manifest_entry_fails(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        package="unreleased.py@latest",
+        keep_extension=False,
+        as_name=None,
+        bin_dir=tmp_path / "bin",
+        registry_path=tmp_path / "registry.tsv",
+    )
+
+    mys["install_package"].__globals__["download_package"] = lambda repo, branch, package: (
+        "mock",
+        b"",
+    )
+
+    exit_code = mys["install_package"](args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "cannot resolve @latest" in captured.err
+
+
 def test_remove_refuses_unregistered_command(tmp_path: Path, capsys) -> None:
     mys = load_mys()
     bin_dir = tmp_path / "bin"

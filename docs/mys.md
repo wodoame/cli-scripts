@@ -98,6 +98,42 @@ mys remove text_search
 mys config
 ```
 
+## Versioning
+
+Pin an install to a specific tagged version by appending `@version` to the package path:
+
+```bash
+mys install gh-ssh@1.0.1
+mys url gh-ssh@1.0.1
+```
+
+This resolves to the git tag `{package_path}-{version}` (e.g. `gh-ssh-1.0.1`) and downloads
+the file from that ref instead of the default branch.
+
+Append `@latest` to install the newest released version without knowing its exact number:
+
+```bash
+mys install gh-ssh@latest
+```
+
+`mys` resolves `@latest` by downloading `versions.tsv` from the repo root (on the default
+branch) and looking up the package's current released version there. The resolved version is
+then pinned in the registry exactly like an explicit `@version` — it does not keep tracking
+future releases, so re-run `mys update gh-ssh@latest` to pick up a newer release later.
+
+Installing with no `@` suffix at all (e.g. `mys install gh-ssh`) keeps installing straight off
+the default branch HEAD, which may be ahead of the latest tagged release.
+
+`versions.tsv` is a two-column TSV mapping package path to its latest released version, e.g.:
+
+```
+gh-ssh	1.0.1
+```
+
+When cutting a release for a script: bump any in-script version marker, commit, tag the commit
+as `{package_path}-{version}`, update that package's row in `versions.tsv` in the same commit,
+then push the commit and tag.
+
 ## Registry Format
 
 The registry is a tab-separated file with these columns:
