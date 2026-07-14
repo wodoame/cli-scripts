@@ -1,6 +1,9 @@
 import os
 import argparse
 
+SCRIPT_NAME = "dirtree"
+VERSION = "1.0.0"
+
 def print_tree(start_path, prefix="", show_hidden=True):
     entries = sorted(os.listdir(start_path))
     if not show_hidden:
@@ -18,6 +21,12 @@ def main():
     parser = argparse.ArgumentParser(description="Print directory tree in Markdown-like style.")
     parser.add_argument("directory", nargs="?", default=".", help="Directory to list (default: current directory)")
     parser.add_argument("--show-hidden", action="store_true", help="Include hidden files and folders")
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"{SCRIPT_NAME} {VERSION}",
+    )
     args = parser.parse_args()
 
     print(args.directory)

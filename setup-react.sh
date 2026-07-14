@@ -2,6 +2,9 @@
 
 set -e
 
+SCRIPT_NAME="setup-react"
+VERSION="1.0.0"
+
 # Defaults
 PROJECT_NAME=""
 USE_ROUTER=true
@@ -17,6 +20,7 @@ show_help() {
   echo ""
   echo "Options:"
   echo "  -h, --help         Show this help message"
+  echo "  -v, --version      Show version and exit"
   echo "  --no-router        Skip React Router setup"
   echo "  --git              Initialize git repository"
   echo ""
@@ -31,6 +35,10 @@ while [[ $# -gt 0 ]]; do
   case $1 in
   -h | --help)
     show_help
+    exit 0
+    ;;
+  -v | --version)
+    echo "$SCRIPT_NAME $VERSION"
     exit 0
     ;;
   --no-router)

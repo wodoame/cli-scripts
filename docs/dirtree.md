@@ -16,6 +16,7 @@ python dirtree.py [directory] [--show-hidden]
 
 - `directory` (optional): The root directory to display. Defaults to the current directory (`.`) if not specified.
 - `--show-hidden`: If provided, hidden files and folders (starting with `.`) will be included in the output.
+- `-v, --version`: Print the version and exit.
 
 ## Examples
 

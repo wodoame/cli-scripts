@@ -2,6 +2,9 @@
 
 set -e
 
+SCRIPT_NAME="setup-django"
+VERSION="1.0.0"
+
 # Defaults
 PROJECT_NAME=""
 USE_REACT=false
@@ -20,6 +23,7 @@ show_help() {
   echo ""
   echo "Options:"
   echo "  -h, --help       Show this help message"
+  echo "  -v, --version    Show version and exit"
   echo "  --react          Scaffold React frontend (requires setup-react in PATH)"
   echo "  --fullstack      Scaffold React + connect it with Django"
   echo ""
@@ -34,6 +38,10 @@ while [[ $# -gt 0 ]]; do
   case $1 in
   -h | --help)
     show_help
+    exit 0
+    ;;
+  -v | --version)
+    echo "$SCRIPT_NAME $VERSION"
     exit 0
     ;;
   --react)
