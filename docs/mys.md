@@ -128,11 +128,26 @@ the default branch HEAD, which may be ahead of the latest tagged release.
 
 ```
 gh-ssh	1.0.1
+mys	1.0.0
 ```
 
 When cutting a release for a script: bump any in-script version marker, commit, tag the commit
 as `{package_path}-{version}`, update that package's row in `versions.tsv` in the same commit,
 then push the commit and tag.
+
+`mys` itself is versioned the same way. Check the installed version with:
+
+```bash
+mys --version
+```
+
+`mys self-update` normally updates from the default branch HEAD. Pass a version (or `latest`)
+to pin the update to a specific release instead:
+
+```bash
+mys self-update latest
+mys self-update 1.0.0
+```
 
 ## Registry Format
 

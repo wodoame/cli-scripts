@@ -6,6 +6,8 @@ import pwd
 import runpy
 from pathlib import Path
 
+import pytest
+
 # uv run --group dev pytest -q
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -180,6 +182,70 @@ def test_install_latest_without_manifest_entry_fails(tmp_path: Path, capsys) -> 
 
     assert exit_code == 1
     assert "cannot resolve @latest" in captured.err
+
+
+def test_version_flag_prints_name_and_version(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    defaults = {
+        "repo": "wodoame/cli-scripts",
+        "branch": "main",
+        "bin_dir": str(tmp_path / "bin"),
+        "registry_path": str(tmp_path / "registry.tsv"),
+    }
+    parser = mys["build_parser"](defaults, tmp_path / "config.tsv")
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["--version"])
+    captured = capsys.readouterr()
+
+    assert excinfo.value.code == 0
+    assert captured.out.strip() == f"{mys['SCRIPT_NAME']} {mys['VERSION']}"
+
+
+def test_self_update_resolves_latest_version(tmp_path: Path) -> None:
+    mys = load_mys()
+    bin_dir = tmp_path / "bin"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        bin_dir=bin_dir,
+        version="latest",
+    )
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        if package == "versions.tsv":
+            return "mock", b"mys\t1.0.0\n"
+        assert branch == "mys-1.0.0"
+        return "mock", b"#!/usr/bin/env python3\nprint('hi')\n"
+
+    mys["self_update"].__globals__["download_package"] = fake_download_package
+
+    exit_code = mys["self_update"](args)
+
+    assert exit_code == 0
+    assert (bin_dir / "mys").exists()
+
+
+def test_self_update_without_version_uses_default_branch(tmp_path: Path) -> None:
+    mys = load_mys()
+    bin_dir = tmp_path / "bin"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        bin_dir=bin_dir,
+        version=None,
+    )
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        assert branch == "main"
+        return "mock", b"#!/usr/bin/env python3\nprint('hi')\n"
+
+    mys["self_update"].__globals__["download_package"] = fake_download_package
+
+    exit_code = mys["self_update"](args)
+
+    assert exit_code == 0
+    assert (bin_dir / "mys").exists()
 
 
 def test_remove_refuses_unregistered_command(tmp_path: Path, capsys) -> None:

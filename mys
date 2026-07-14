@@ -14,6 +14,9 @@ import urllib.request
 from pathlib import Path
 
 
+SCRIPT_NAME = "mys"
+VERSION = "1.0.0"
+
 DEFAULT_REPO = "wodoame/cli-scripts"
 DEFAULT_BRANCH = "main"
 DEFAULT_BIN_DIR = Path.home() / "bin" if os.name == "nt" else Path("/usr/local/bin")
@@ -703,10 +706,14 @@ def print_config(args: argparse.Namespace) -> int:
 def self_update(args: argparse.Namespace) -> int:
     package_path = "mys"
     destination_path = args.bin_dir / "mys"
+    branch = resolve_branch_for_package(args.repo, args.branch, package_path, args.version)
+    if branch is None:
+        return 1
+
     if error_code := ensure_bin_dir_writable(args.bin_dir, "mys"):
         return error_code
 
-    downloaded = download_package(args.repo, args.branch, package_path)
+    downloaded = download_package(args.repo, branch, package_path)
     if downloaded is None:
         return 1
 
@@ -744,6 +751,12 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
         type=Path,
         default=default_config_path,
         help="Path to the mys config file.",
+    )
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"{SCRIPT_NAME} {VERSION}",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -824,6 +837,12 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     config_parser.set_defaults(func=print_config)
 
     self_update_parser = subparsers.add_parser("self-update", help="Update the installed mys command.")
+    self_update_parser.add_argument(
+        "version",
+        nargs="?",
+        default=None,
+        help="Version to update to, e.g. 1.0.0 or latest. Omit to use the default branch HEAD.",
+    )
     self_update_parser.set_defaults(func=self_update)
 
     return parser
