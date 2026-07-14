@@ -1,5 +1,8 @@
 #!/bin/bash
 
+SCRIPT_NAME="renamer"
+VERSION="1.0.0"
+
 # --- 1. Initialize Variables ---
 DRY_RUN=true
 TARGET_DIR=""
@@ -22,6 +25,7 @@ show_help() {
   echo "Options:"
   echo "  -f, --force        Disable dry-run mode and apply changes permanently."
   echo "  -h, --help         Show this help message."
+  echo "  -v, --version      Show version and exit."
   echo "  -D, --disable-defaults  Skip the default cleanup rules (see below)."
   echo
   echo "Removal Rules (can be used multiple times):"
@@ -48,6 +52,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
   -h | --help)
     show_help
+    exit 0
+    ;;
+  -v | --version)
+    echo "$SCRIPT_NAME $VERSION"
     exit 0
     ;;
   -f | --force)
