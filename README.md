@@ -5,7 +5,7 @@ This repo contains small personal CLI utilities and setup scripts.
 ## Tools
 
 - `gh-ssh`: Generate GitHub SSH keys and add/update a matching SSH alias in `~/.ssh/config`. See [docs/gh-ssh.md](docs/gh-ssh.md).
-- `mys`: Install and update one script at a time from GitHub into `/usr/local/bin`. See [docs/mys.md](docs/mys.md).
+- `mys`: Install and update one script at a time from GitHub into `/usr/local/bin`. See [#mys](#mys) below.
 - `schema.mjs`: Inspect and refresh ARMS GraphQL service schemas from a backend checkout.
 
 ## mys
@@ -51,14 +51,14 @@ Python is the best fit for the first version because it can:
 The package name is the relative file path in the GitHub repo:
 
 - `mys install text_search.py`
-- `mys install compile_with_argparser.sh`
+- `mys install renamer.sh`
 - `mys install linux/dirtree.py`
 - `mys install schema.mjs --as schema`
 
 By default, `mys` removes `.py`, `.sh`, and `.mjs` from the installed command name:
 
 - `mys install text_search.py` installs `/usr/local/bin/text_search`
-- `mys install compile_with_argparser.sh` installs `/usr/local/bin/compile_with_argparser`
+- `mys install renamer.sh` installs `/usr/local/bin/renamer`
 - `mys install schema.mjs` installs `/usr/local/bin/schema`
 
 Use `--keep-extension` if you want the original file name preserved.
@@ -210,3 +210,17 @@ mys sync
 ```
 
 `mys import` merges entries by command name by default. Use `mys import --replace ...` if you want the imported registry to fully replace the local one.
+
+## Shell Completion
+
+A bash completion script is included at `completions/mys.bash`. It completes commands, flags, and — for `mys remove` — dynamically reads installed command names from the registry.
+
+Install it for your user (no `.bashrc` edit needed; bash-completion 2.x sources this directory automatically):
+
+```bash
+mkdir -p ~/.local/share/bash-completion/completions
+curl -fsSL https://raw.githubusercontent.com/wodoame/cli-scripts/main/completions/mys.bash \
+     -o ~/.local/share/bash-completion/completions/mys
+```
+
+Open a new shell and tab completion is active.
