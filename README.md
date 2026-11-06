@@ -6,7 +6,8 @@ This repo contains small personal CLI utilities and setup scripts.
 
 - `gh-ssh`: Generate GitHub SSH keys and add/update a matching SSH alias in `~/.ssh/config`. See [docs/gh-ssh.md](docs/gh-ssh.md).
 - `mys`: Install and update one script at a time from GitHub into `/usr/local/bin`. See [#mys](#mys) below.
-- `schema.mjs`: Inspect and refresh ARMS GraphQL service schemas from a backend checkout.
+- `diff.py`: Compare package requirements files. See [docs/diff.md](docs/diff.md).
+- `dirtree.py`: Print a directory tree. See [docs/dirtree.md](docs/dirtree.md).
 
 ## mys
 
@@ -43,23 +44,23 @@ Python is the best fit for the first version because it can:
 
 - make HTTP requests with the standard library
 - handle file permissions cleanly
-- work well with `.py`, `.sh`, and `.mjs` scripts in this repo
+- work well with `.py` and `.sh` scripts in this repo
 - stay dependency-free
 
 ## Package Naming
 
 The package name is the relative file path in the GitHub repo:
 
-- `mys install text_search.py`
+- `mys install gh-ssh`
 - `mys install renamer.sh`
-- `mys install linux/dirtree.py`
-- `mys install schema.mjs --as schema`
+- `mys install diff.py`
+- `mys install dirtree.py`
 
-By default, `mys` removes `.py`, `.sh`, and `.mjs` from the installed command name:
+By default, `mys` removes `.py` and `.sh` from the installed command name:
 
-- `mys install text_search.py` installs `/usr/local/bin/text_search`
+- `mys install diff.py` installs `/usr/local/bin/diff`
 - `mys install renamer.sh` installs `/usr/local/bin/renamer`
-- `mys install schema.mjs` installs `/usr/local/bin/schema`
+- `mys install dirtree.py` installs `/usr/local/bin/dirtree`
 
 Use `--keep-extension` if you want the original file name preserved.
 
@@ -121,9 +122,9 @@ Running `mys config` without extra flags prints the active values.
 Examples:
 
 ```bash
-mys install text_search.py
-mys update text_search.py
-mys install linux/dirtree.py --as dirtree-linux
+mys install gh-ssh
+mys update gh-ssh
+mys install dirtree.py --as dirtree-cli
 mys list
 mys export mys-registry.tsv
 mys import mys-registry.tsv
