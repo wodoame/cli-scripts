@@ -126,6 +126,7 @@ mys install gh-ssh
 mys update gh-ssh
 mys install dirtree.py --as dirtree-cli
 mys deps gh-ssh
+mys changelog gh-ssh
 mys list
 mys export mys-registry.tsv
 mys import mys-registry.tsv
@@ -195,6 +196,16 @@ with an `## Unreleased` section at the top:
 
 When you change a script, add a line under `## Unreleased` in the same commit. Group lines
 under `### Added`, `### Changed`, `### Fixed` or `### Removed` when that helps.
+
+Read a script's changelog from the terminal with `mys changelog`. It downloads the file from
+the default branch, leaves out `## Unreleased`, and marks the version you have installed:
+
+```bash
+mys changelog gh-ssh          # every released version, newest first
+mys changelog gh-ssh@1.0.1    # one release
+mys changelog gh-ssh@latest   # the newest release
+mys changelog gh-ssh --new    # only releases newer than the installed one
+```
 
 ### Cutting a release
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- `mys changelog <package>` prints what changed in each released version, marking the
+  installed one. Append `@version` for a single release, or pass `--new` for only the
+  releases newer than the installed version.
+
 ## 1.2.0 - 2026-11-10
 
 ### Added

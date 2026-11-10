@@ -43,6 +43,8 @@ REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_pa
 CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
 VERSIONS_MANIFEST_PATH = "versions.tsv"
 LATEST_VERSION_KEYWORD = "latest"
+CHANGELOG_DIR = "changelogs"
+CHANGELOG_UNRELEASED = "unreleased"
 # A script declares the scripts it needs in a header comment, e.g.
 #   # mys-requires: gh-ssh, dirtree.py@1.0.0
 REQUIRES_PATTERN = re.compile(r"^\s*(?:#|//)\s*mys-requires:(.*)$")
@@ -942,6 +944,115 @@ def print_dependencies(args: argparse.Namespace) -> int:
     return print_tree(args.package, 0, ())
 
 
+def parse_changelog(text: str) -> list[dict[str, str]]:
+    """Split a changelog into its released versions, in file order (newest first).
+
+    Each '## <version> ...' heading starts a section; the '## Unreleased' section and
+    anything above the first heading are dropped.
+    """
+    sections: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    body: list[str] = []
+
+    def close_section() -> None:
+        if current is not None and current["version"].lower() != CHANGELOG_UNRELEASED:
+            current["body"] = "\n".join(body).strip("\n")
+            sections.append(current)
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            close_section()
+            heading = line[3:].strip()
+            version = heading.split()[0].strip("[]").removeprefix("v") if heading else ""
+            current = {"version": version, "heading": heading}
+            body = []
+        elif current is not None:
+            body.append(line)
+    close_section()
+
+    return sections
+
+
+def find_installed_version(registry_path: Path, repo: str, package: str) -> tuple[bool, str | None]:
+    """Return (is_installed, version). The version is None for an install from a branch HEAD."""
+    for entry in load_registry(registry_path):
+        if entry["package_path"] != package or entry["repo"] != repo:
+            continue
+        prefix = f"{package}-"
+        if entry["branch"].startswith(prefix):
+            return True, entry["branch"][len(prefix):]
+        return True, None
+    return False, None
+
+
+def print_changelog(args: argparse.Namespace) -> int:
+    package, version = parse_package_arg(args.package)
+    changelog_path = f"{CHANGELOG_DIR}/{package}.md"
+
+    # A missing changelog is an ordinary answer, not a download failure worth a URL dump.
+    with contextlib.redirect_stderr(io.StringIO()):
+        downloaded = download_package(args.repo, args.branch, changelog_path)
+    if downloaded is None:
+        print(f"mys: no changelog found for {package} in {args.repo}", file=sys.stderr)
+        return 1
+
+    _, content = downloaded
+    sections = parse_changelog(content.decode("utf-8", errors="replace"))
+    if not sections:
+        print(f"mys: the changelog for {package} has no released versions yet", file=sys.stderr)
+        return 1
+
+    is_installed, installed_version = find_installed_version(
+        args.registry_path, args.repo, package
+    )
+
+    if getattr(args, "new", False):
+        if version is not None:
+            print("mys: --new cannot be combined with @version", file=sys.stderr)
+            return 1
+        if not is_installed:
+            print(f"mys: {package} is not installed; --new needs an installed version", file=sys.stderr)
+            return 1
+        if installed_version is None:
+            print(
+                f"mys: {package} was installed from a branch, not a release, "
+                "so there is no version to compare against",
+                file=sys.stderr,
+            )
+            return 1
+        versions = [section["version"] for section in sections]
+        if installed_version not in versions:
+            print(
+                f"mys: installed version {installed_version} of {package} is not in its changelog",
+                file=sys.stderr,
+            )
+            return 1
+        sections = sections[: versions.index(installed_version)]
+        if not sections:
+            print(f"{package} {installed_version} is the latest release.")
+            return 0
+    elif version == LATEST_VERSION_KEYWORD:
+        sections = sections[:1]
+    elif version is not None:
+        wanted = version.removeprefix("v")
+        sections = [section for section in sections if section["version"] == wanted]
+        if not sections:
+            print(f"mys: no changelog entry for {package} {version}", file=sys.stderr)
+            return 1
+
+    blocks: list[str] = []
+    for section in sections:
+        marker = " [installed]" if section["version"] == installed_version else ""
+        block = f"## {section['heading']}{marker}"
+        if section["body"]:
+            block += f"\n\n{section['body']}"
+        blocks.append(block)
+
+    print(f"# {package}\n")
+    print("\n\n".join(blocks))
+    return 0
+
+
 def print_config(args: argparse.Namespace) -> int:
     updates: dict[str, str] = {}
     if args.config_repo is not None:
@@ -1110,6 +1221,20 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
         help="Relative file path in the GitHub repo. Append @version to inspect a specific release.",
     )
     deps_parser.set_defaults(func=print_dependencies)
+
+    changelog_parser = subparsers.add_parser(
+        "changelog", help="Print what changed in each released version of a package."
+    )
+    changelog_parser.add_argument(
+        "package",
+        help="Relative file path in the GitHub repo. Append @version to print one release, e.g. gh-ssh@1.0.1, or @latest for the newest.",
+    )
+    changelog_parser.add_argument(
+        "--new",
+        action="store_true",
+        help="Only print releases newer than the installed version.",
+    )
+    changelog_parser.set_defaults(func=print_changelog)
 
     config_parser = subparsers.add_parser("config", help="Print or update the active mys configuration.")
     config_parser.add_argument("--repo", dest="config_repo", help="Persist a default GitHub repo.")

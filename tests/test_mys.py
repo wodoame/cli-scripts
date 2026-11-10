@@ -717,3 +717,127 @@ def test_deps_prints_resolved_tree(tmp_path: Path, capsys) -> None:
         "    app.sh (dependency cycle)",
         "  helper.py (main) [installed]",
     ]
+
+
+# --- changelog ---------------------------------------------------------------
+
+CHANGELOG = b"""# gh-ssh
+
+Intro text that is not part of any version.
+
+## Unreleased
+
+- Not out yet.
+
+## 1.1.0 - 2026-11-10
+
+### Added
+- Rotate keys.
+
+## 1.0.1 - 2026-06-27
+
+### Added
+- `--version` flag.
+
+## 1.0.0 - 2026-06-27
+
+First versioned release.
+"""
+
+
+def changelog_args(tmp_path: Path, package: str, new: bool = False) -> argparse.Namespace:
+    return argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        package=package,
+        new=new,
+        registry_path=tmp_path / "registry.tsv",
+    )
+
+
+def write_registry_row(tmp_path: Path, branch: str) -> None:
+    (tmp_path / "registry.tsv").write_text(
+        "\t".join(["gh-ssh", "gh-ssh", "wodoame/cli-scripts", branch, "/usr/local/bin/gh-ssh"])
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def load_mys_with_changelog(calls: list[tuple[str, str]] | None = None) -> dict[str, object]:
+    mys = load_mys()
+    mys["print_changelog"].__globals__["download_package"] = make_repo_download(
+        {"changelogs/gh-ssh.md": CHANGELOG}, calls
+    )
+    return mys
+
+
+def test_parse_changelog_drops_unreleased_and_preamble() -> None:
+    sections = load_mys()["parse_changelog"](CHANGELOG.decode())
+
+    assert [section["version"] for section in sections] == ["1.1.0", "1.0.1", "1.0.0"]
+    assert sections[0]["heading"] == "1.1.0 - 2026-11-10"
+    assert sections[0]["body"] == "### Added\n- Rotate keys."
+    assert sections[2]["body"] == "First versioned release."
+
+
+def test_changelog_prints_released_versions_and_marks_installed(tmp_path: Path, capsys) -> None:
+    calls: list[tuple[str, str]] = []
+    mys = load_mys_with_changelog(calls)
+    write_registry_row(tmp_path, "gh-ssh-1.0.1")
+
+    exit_code = mys["print_changelog"](changelog_args(tmp_path, "gh-ssh"))
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert calls == [("main", "changelogs/gh-ssh.md")]
+    assert out.startswith("# gh-ssh\n\n## 1.1.0 - 2026-11-10\n\n### Added\n- Rotate keys.\n\n")
+    assert "## 1.0.1 - 2026-06-27 [installed]" in out
+    assert "## 1.0.0 - 2026-06-27\n\nFirst versioned release.\n" in out
+    assert "Not out yet" not in out
+    assert "Intro text" not in out
+
+
+def test_changelog_single_version_and_latest(tmp_path: Path, capsys) -> None:
+    mys = load_mys_with_changelog()
+
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh@1.0.1")) == 0
+    assert capsys.readouterr().out == (
+        "# gh-ssh\n\n## 1.0.1 - 2026-06-27\n\n### Added\n- `--version` flag.\n"
+    )
+
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh@latest")) == 0
+    out = capsys.readouterr().out
+    assert "## 1.1.0" in out and "## 1.0.1" not in out
+
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh@9.9.9")) == 1
+    assert "no changelog entry for gh-ssh 9.9.9" in capsys.readouterr().err
+
+
+def test_changelog_new_prints_only_newer_releases(tmp_path: Path, capsys) -> None:
+    mys = load_mys_with_changelog()
+
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh", new=True)) == 1
+    assert "is not installed" in capsys.readouterr().err
+
+    write_registry_row(tmp_path, "main")
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh", new=True)) == 1
+    assert "installed from a branch" in capsys.readouterr().err
+
+    write_registry_row(tmp_path, "gh-ssh-1.0.0")
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh", new=True)) == 0
+    out = capsys.readouterr().out
+    assert "## 1.1.0" in out and "## 1.0.1" in out and "## 1.0.0" not in out
+
+    write_registry_row(tmp_path, "gh-ssh-1.1.0")
+    assert mys["print_changelog"](changelog_args(tmp_path, "gh-ssh", new=True)) == 0
+    assert capsys.readouterr().out == "gh-ssh 1.1.0 is the latest release.\n"
+
+
+def test_changelog_missing_file_is_a_short_error(tmp_path: Path, capsys) -> None:
+    mys = load_mys_with_changelog()
+
+    exit_code = mys["print_changelog"](changelog_args(tmp_path, "nope.sh"))
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.err == "mys: no changelog found for nope.sh in wodoame/cli-scripts\n"
