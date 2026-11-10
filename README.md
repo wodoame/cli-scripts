@@ -173,9 +173,23 @@ gh-ssh	1.0.1
 mys	1.1.0
 ```
 
-When cutting a release for a script: bump any in-script version marker, commit, tag the commit
-as `{package_path}-{version}`, update that package's row in `versions.tsv` in the same commit,
-then push the commit and tag.
+### Cutting a release
+
+Commit the script's changes first, then run `scripts/release.sh` with the package path and
+either an explicit version or `major`, `minor` or `patch`:
+
+```bash
+scripts/release.sh gh-ssh patch
+scripts/release.sh mys 1.2.0
+```
+
+It bumps the script's `VERSION` marker (if it has one), updates the package's row in
+`versions.tsv`, commits both as `chore: release {package_path} {version}`, tags that commit
+as `{package_path}-{version}`, then pushes the commit and tag together. It refuses to run
+with uncommitted changes, an existing tag, or a branch that is behind its remote.
+
+Use `--dry-run` to see what a release would do, or `--no-push` to commit and tag locally
+without pushing.
 
 `mys` itself is versioned the same way. Check the installed version with:
 
