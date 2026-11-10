@@ -3,9 +3,11 @@
 # Cut a release of one script in this repo:
 #   1. bump the script's VERSION marker (if it has one)
 #   2. update its row in versions.tsv
-#   3. commit both as "chore: release <package> <version>"
-#   4. tag the commit as <package>-<version>
-#   5. push the commit and the tag
+#   3. turn the "## Unreleased" section of changelogs/<package>.md into the
+#      section for this version
+#   4. commit those as "chore: release <package> <version>"
+#   5. tag the commit as <package>-<version>
+#   6. push the commit and the tag
 #
 # This is a repo maintenance tool, not a package to install with mys.
 
@@ -13,14 +15,16 @@ set -euo pipefail
 
 SCRIPT_NAME="release.sh"
 MANIFEST="versions.tsv"
+CHANGELOG_DIR="changelogs"
 REMOTE="origin"
 
 usage() {
   cat <<EOF
 Usage: $SCRIPT_NAME [options] <package> <version|major|minor|patch>
 
-Release one script: bump its VERSION marker, update $MANIFEST, commit,
-tag the commit as <package>-<version>, then push the commit and tag.
+Release one script: bump its VERSION marker, update $MANIFEST, move the
+"## Unreleased" notes in $CHANGELOG_DIR/<package>.md under the new version,
+commit, tag the commit as <package>-<version>, then push the commit and tag.
 
 Arguments:
   package            Path of the script relative to the repo root, e.g. gh-ssh
@@ -30,6 +34,7 @@ Arguments:
 Options:
   -n, --dry-run      Show what would happen without changing anything
       --no-push      Commit and tag locally, but do not push
+      --no-changelog Release without changelog notes, leaving the changelog as is
   -h, --help         Show this help and exit
 
 Examples:
@@ -46,12 +51,14 @@ die() {
 
 dry_run=false
 push=true
+changelog=true
 positional=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
   -n | --dry-run) dry_run=true ;;
   --no-push) push=false ;;
+  --no-changelog) changelog=false ;;
   -h | --help)
     usage
     exit 0
@@ -144,6 +151,31 @@ if $push; then
   fi
 fi
 
+# --- Read the changelog notes -------------------------------------------------
+
+changelog_file="$CHANGELOG_DIR/$package.md"
+unreleased_heading='^## Unreleased[[:space:]]*$'
+release_notes=""
+
+if $changelog; then
+  [[ -f "$changelog_file" ]] ||
+    die "$changelog_file does not exist; create it with a '## Unreleased' section, or pass --no-changelog"
+  grep -q -E "$unreleased_heading" "$changelog_file" ||
+    die "$changelog_file has no '## Unreleased' section; add one, or pass --no-changelog"
+
+  # Everything between "## Unreleased" and the next "## " heading.
+  release_notes="$(awk -v unreleased="$unreleased_heading" '
+    /^## / {
+      if (inside) exit
+      if ($0 ~ unreleased) { inside = 1; next }
+    }
+    inside
+  ' "$changelog_file")"
+
+  [[ "$release_notes" =~ [^[:space:]] ]] ||
+    die "nothing under '## Unreleased' in $changelog_file; describe the changes and commit, or pass --no-changelog"
+fi
+
 # --- Report the plan ----------------------------------------------------------
 
 echo "Releasing $package ${current_version:-(unreleased)} -> $new_version"
@@ -153,6 +185,12 @@ else
   echo "  $package has no VERSION marker; only $MANIFEST will change"
 fi
 echo "  update $MANIFEST"
+if $changelog; then
+  echo "  move the Unreleased notes in $changelog_file under $new_version:"
+  sed -e '/^[[:space:]]*$/d' -e 's/^/      /' <<<"$release_notes"
+else
+  echo "  changelog: skipped (--no-changelog)"
+fi
 echo "  commit: chore: release $package $new_version"
 echo "  tag:    $tag"
 if $push; then
@@ -199,6 +237,22 @@ rewrite "$MANIFEST" -F'\t' -v pkg="$package" -v version="$new_version" '
   END { print pkg "\t" version }
 '
 LC_ALL=C sort -o "$MANIFEST" "$MANIFEST"
+
+if $changelog; then
+  # Keep an empty Unreleased section on top and give the notes a version heading.
+  rewrite "$changelog_file" -v unreleased="$unreleased_heading" \
+    -v heading="## $new_version - $(date +%F)" '
+    !done && $0 ~ unreleased {
+      print
+      print ""
+      print heading
+      done = 1
+      next
+    }
+    { print }
+  '
+  git add -- "$changelog_file"
+fi
 
 git add -- "$package" "$MANIFEST"
 git commit --quiet -m "chore: release $package $new_version"

@@ -174,10 +174,32 @@ gh-ssh	1.0.1
 mys	1.1.0
 ```
 
+### Changelogs
+
+Each script has its own changelog at `changelogs/{package_path}.md`, newest version first,
+with an `## Unreleased` section at the top:
+
+```markdown
+# gh-ssh
+
+## Unreleased
+
+### Added
+- `gh-ssh rotate` replaces an existing key.
+
+## 1.0.1 - 2026-06-27
+
+### Added
+- `--version` flag.
+```
+
+When you change a script, add a line under `## Unreleased` in the same commit. Group lines
+under `### Added`, `### Changed`, `### Fixed` or `### Removed` when that helps.
+
 ### Cutting a release
 
-Commit the script's changes first, then run `scripts/release.sh` with the package path and
-either an explicit version or `major`, `minor` or `patch`:
+Commit the script's changes and its changelog notes first, then run `scripts/release.sh` with
+the package path and either an explicit version or `major`, `minor` or `patch`:
 
 ```bash
 scripts/release.sh gh-ssh patch
@@ -185,12 +207,16 @@ scripts/release.sh mys 1.2.0
 ```
 
 It bumps the script's `VERSION` marker (if it has one), updates the package's row in
-`versions.tsv`, commits both as `chore: release {package_path} {version}`, tags that commit
-as `{package_path}-{version}`, then pushes the commit and tag together. It refuses to run
-with uncommitted changes, an existing tag, or a branch that is behind its remote.
+`versions.tsv`, and moves the notes under `## Unreleased` to a new
+`## {version} - {date}` section, leaving `## Unreleased` empty for next time. It commits
+those as `chore: release {package_path} {version}`, tags that commit as
+`{package_path}-{version}`, then pushes the commit and tag together.
 
-Use `--dry-run` to see what a release would do, or `--no-push` to commit and tag locally
-without pushing.
+It refuses to run with uncommitted changes, an existing tag, a branch that is behind its
+remote, or nothing under `## Unreleased`.
+
+Use `--dry-run` to see what a release would do, `--no-push` to commit and tag locally without
+pushing, or `--no-changelog` to release without changelog notes.
 
 `mys` itself is versioned the same way. Check the installed version with:
 

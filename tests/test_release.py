@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import shutil
 import subprocess
 from pathlib import Path
@@ -35,6 +36,16 @@ def repo(tmp_path: Path) -> Path:
     (repo / "tool.py").write_text('VERSION = "0.3.1"\nOTHER_VERSION = "9.9.9"\n')
     (repo / "plain.sh").write_text("#!/usr/bin/env bash\necho hi\n")
     (repo / "versions.tsv").write_text("tool.py\t0.3.1\ntool.sh\t1.0.0\n")
+    changelogs = repo / "changelogs"
+    changelogs.mkdir()
+    (changelogs / "tool.sh.md").write_text(
+        "# tool.sh\n\n## Unreleased\n\n### Added\n- A new flag.\n\n"
+        "## 1.0.0 - 2026-01-01\n\nFirst release.\n"
+    )
+    (changelogs / "tool.py.md").write_text(
+        "# tool.py\n\n## Unreleased\n- Fixed a crash.\n\n## 0.3.1 - 2026-01-01\n- Older.\n"
+    )
+    (changelogs / "plain.sh.md").write_text("# plain.sh\n\n## Unreleased\n\n- First release.\n")
 
     git(repo, "init", "-q", "-b", "main")
     git(repo, "config", "user.email", "test@example.com")
@@ -126,3 +137,52 @@ def test_pushes_commit_and_tag(repo: Path, tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert git(remote, "rev-parse", "main") == git(repo, "rev-parse", "HEAD")
     assert git(remote, "tag") == "tool.sh-1.0.1"
+
+
+def test_release_moves_unreleased_notes_under_the_new_version(repo: Path) -> None:
+    result = release(repo, "--no-push", "tool.sh", "minor")
+
+    assert result.returncode == 0, result.stderr
+    today = datetime.date.today().isoformat()
+    assert (repo / "changelogs" / "tool.sh.md").read_text() == (
+        "# tool.sh\n\n## Unreleased\n\n"
+        f"## 1.1.0 - {today}\n\n### Added\n- A new flag.\n\n"
+        "## 1.0.0 - 2026-01-01\n\nFirst release.\n"
+    )
+    assert "- A new flag." in result.stdout
+    committed = git(repo, "show", "--name-only", "--format=", "HEAD").splitlines()
+    assert sorted(committed) == ["changelogs/tool.sh.md", "tool.sh", "versions.tsv"]
+
+
+def test_release_refuses_without_changelog_notes(repo: Path) -> None:
+    changelog = repo / "changelogs" / "tool.sh.md"
+    changelog.write_text("# tool.sh\n\n## Unreleased\n\n## 1.0.0 - 2026-01-01\n\nFirst release.\n")
+    git(repo, "commit", "-q", "-am", "empty unreleased")
+
+    result = release(repo, "--no-push", "tool.sh", "patch")
+    assert result.returncode == 1
+    assert "nothing under '## Unreleased'" in result.stderr
+
+    changelog.write_text("# tool.sh\n\n## 1.0.0 - 2026-01-01\n\nFirst release.\n")
+    git(repo, "commit", "-q", "-am", "no unreleased")
+    result = release(repo, "--no-push", "tool.sh", "patch")
+    assert result.returncode == 1
+    assert "has no '## Unreleased' section" in result.stderr
+
+    git(repo, "rm", "-q", "changelogs/tool.sh.md")
+    git(repo, "commit", "-q", "-m", "no changelog")
+    result = release(repo, "--no-push", "tool.sh", "patch")
+    assert result.returncode == 1
+    assert "does not exist" in result.stderr
+    assert git(repo, "tag") == ""
+
+
+def test_no_changelog_flag_releases_without_touching_the_changelog(repo: Path) -> None:
+    git(repo, "rm", "-q", "changelogs/tool.sh.md")
+    git(repo, "commit", "-q", "-m", "no changelog")
+
+    result = release(repo, "--no-push", "--no-changelog", "tool.sh", "patch")
+
+    assert result.returncode == 0, result.stderr
+    assert git(repo, "tag") == "tool.sh-1.0.1"
+    assert not (repo / "changelogs" / "tool.sh.md").exists()
