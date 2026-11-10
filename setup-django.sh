@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# mys-requires: setup-react.sh
 
 set -e
 
