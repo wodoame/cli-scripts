@@ -136,6 +136,22 @@ mys config
 
 ## Versioning
 
+Installing with no `@` suffix installs the latest released version:
+
+```bash
+mys install gh-ssh
+```
+
+`mys` resolves it by downloading `versions.tsv` from the repo root (on the default branch) and
+looking up the package's current released version there. The resolved version is then pinned
+in the registry as the git tag `{package_path}-{version}` (e.g. `gh-ssh-1.0.1`) — it does not
+keep tracking future releases, so re-run `mys update gh-ssh` to pick up a newer release later.
+`gh-ssh@latest` is still accepted and means the same thing, except that it fails if the script
+has no release.
+
+If the script has no row in `versions.tsv` (or the repo has no `versions.tsv`), `mys` falls
+back to the default branch HEAD.
+
 Pin an install to a specific tagged version by appending `@version` to the package path:
 
 ```bash
@@ -143,28 +159,18 @@ mys install gh-ssh@1.0.1
 mys url gh-ssh@1.0.1
 ```
 
-This resolves to the git tag `{package_path}-{version}` (e.g. `gh-ssh-1.0.1`) and downloads
-the file from that ref instead of the default branch.
-
-Append `@latest` to install the newest released version without knowing its exact number:
+To install straight off a branch HEAD instead, which may be ahead of the latest tagged
+release, pass `--branch` explicitly:
 
 ```bash
-mys install gh-ssh@latest
+mys --branch main install gh-ssh
 ```
-
-`mys` resolves `@latest` by downloading `versions.tsv` from the repo root (on the default
-branch) and looking up the package's current released version there. The resolved version is
-then pinned in the registry exactly like an explicit `@version` — it does not keep tracking
-future releases, so re-run `mys update gh-ssh@latest` to pick up a newer release later.
-
-Installing with no `@` suffix at all (e.g. `mys install gh-ssh`) keeps installing straight off
-the default branch HEAD, which may be ahead of the latest tagged release.
 
 `versions.tsv` is a two-column TSV mapping package path to its latest released version, e.g.:
 
 ```
 gh-ssh	1.0.1
-mys	1.0.0
+mys	1.1.0
 ```
 
 When cutting a release for a script: bump any in-script version marker, commit, tag the commit
@@ -177,12 +183,13 @@ then push the commit and tag.
 mys --version
 ```
 
-`mys self-update` normally updates from the default branch HEAD. Pass a version (or `latest`)
-to pin the update to a specific release instead:
+`mys self-update` updates to the latest released version. Pass a version to pin the update to
+a specific release, or `--branch` to update from a branch HEAD:
 
 ```bash
-mys self-update latest
+mys self-update
 mys self-update 1.0.0
+mys --branch main self-update
 ```
 
 ## Registry Format

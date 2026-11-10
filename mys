@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import os
 import shutil 
 import stat
@@ -15,7 +17,7 @@ from pathlib import Path
 
 
 SCRIPT_NAME = "mys"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 DEFAULT_REPO = "wodoame/cli-scripts"
 DEFAULT_BRANCH = "main"
@@ -133,8 +135,15 @@ def parse_versions_manifest(text: str) -> dict[str, str]:
     return versions
 
 
-def resolve_latest_version(repo: str, branch: str, package_path: str) -> str | None:
-    downloaded = download_package(repo, branch, VERSIONS_MANIFEST_PATH)
+def resolve_latest_version(
+    repo: str, branch: str, package_path: str, quiet: bool = False
+) -> str | None:
+    if quiet:
+        # A missing manifest is expected for repos or scripts without releases.
+        with contextlib.redirect_stderr(io.StringIO()):
+            downloaded = download_package(repo, branch, VERSIONS_MANIFEST_PATH)
+    else:
+        downloaded = download_package(repo, branch, VERSIONS_MANIFEST_PATH)
     if downloaded is None:
         return None
 
@@ -144,10 +153,24 @@ def resolve_latest_version(repo: str, branch: str, package_path: str) -> str | N
 
 
 def resolve_branch_for_package(
-    repo: str, branch: str, package: str, version: str | None
+    repo: str,
+    branch: str,
+    package: str,
+    version: str | None,
+    default_to_latest: bool = True,
 ) -> str | None:
+    """Pick the git ref to download a package from.
+
+    With no version, use the latest released version, falling back to the branch
+    HEAD when the package has no release (or default_to_latest is False).
+    """
     if version is None:
-        return branch
+        if not default_to_latest:
+            return branch
+        resolved_version = resolve_latest_version(repo, branch, package, quiet=True)
+        if resolved_version is None:
+            return branch
+        return build_version_tag(package, resolved_version)
 
     if version == LATEST_VERSION_KEYWORD:
         resolved_version = resolve_latest_version(repo, branch, package)
@@ -478,9 +501,16 @@ def ensure_bin_dir_writable(bin_dir: Path, command_name: str) -> int | None:
     return None
 
 
+def uses_default_branch(args: argparse.Namespace) -> bool:
+    """False when --branch was passed on the command line, which pins that branch's HEAD."""
+    return not getattr(args, "branch_explicit", False)
+
+
 def install_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = resolve_branch_for_package(args.repo, args.branch, package, version)
+    branch = resolve_branch_for_package(
+        args.repo, args.branch, package, version, uses_default_branch(args)
+    )
     if branch is None:
         return 1
     command_name = args.as_name or derive_command_name(package, args.keep_extension)
@@ -514,7 +544,9 @@ def install_package(args: argparse.Namespace) -> int:
 
 def update_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = resolve_branch_for_package(args.repo, args.branch, package, version)
+    branch = resolve_branch_for_package(
+        args.repo, args.branch, package, version, uses_default_branch(args)
+    )
     if branch is None:
         return 1
     command_name = args.as_name or derive_command_name(package, args.keep_extension)
@@ -668,7 +700,9 @@ def sync_registry(args: argparse.Namespace) -> int:
 
 def print_url(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
-    branch = resolve_branch_for_package(args.repo, args.branch, package, version)
+    branch = resolve_branch_for_package(
+        args.repo, args.branch, package, version, uses_default_branch(args)
+    )
     if branch is None:
         return 1
     print(build_raw_url(args.repo, branch, package))
@@ -706,7 +740,9 @@ def print_config(args: argparse.Namespace) -> int:
 def self_update(args: argparse.Namespace) -> int:
     package_path = "mys"
     destination_path = args.bin_dir / "mys"
-    branch = resolve_branch_for_package(args.repo, args.branch, package_path, args.version)
+    branch = resolve_branch_for_package(
+        args.repo, args.branch, package_path, args.version, uses_default_branch(args)
+    )
     if branch is None:
         return 1
 
@@ -733,7 +769,14 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
         description="Install individual scripts from the cli-scripts GitHub repo into /usr/local/bin.",
     )
     parser.add_argument("--repo", default=defaults["repo"], help="GitHub repo in owner/name form.")
-    parser.add_argument("--branch", default=defaults["branch"], help="Git branch or tag to download from.")
+    parser.add_argument(
+        "--branch",
+        default=None,
+        help=(
+            f"Git branch or tag to download from (default: {defaults['branch']}). "
+            "Passing it installs that ref's HEAD instead of the latest released version."
+        ),
+    )
     parser.add_argument(
         "--bin-dir",
         type=Path,
@@ -764,7 +807,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     install_parser = subparsers.add_parser("install", help="Download and install a script.")
     install_parser.add_argument(
         "package",
-        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Append @version to pin a tag or branch, e.g. text_search.py@v1.0.0, or @latest to resolve the newest released version from versions.tsv.",
+        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Installs the latest released version from versions.tsv by default (the branch HEAD if the script has no release). Append @version to pin a release, e.g. gh-ssh@1.0.1.",
     )
     install_parser.add_argument("--as", dest="as_name", help="Override the installed command name.")
     install_parser.add_argument(
@@ -777,7 +820,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     update_parser = subparsers.add_parser("update", help="Download and overwrite an installed script.")
     update_parser.add_argument(
         "package",
-        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Append @version to pin a tag or branch, e.g. text_search.py@v1.0.0, or @latest to resolve the newest released version from versions.tsv.",
+        help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Installs the latest released version from versions.tsv by default (the branch HEAD if the script has no release). Append @version to pin a release, e.g. gh-ssh@1.0.1.",
     )
     update_parser.add_argument("--as", dest="as_name", help="Installed command name to overwrite.")
     update_parser.add_argument(
@@ -816,7 +859,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     sync_parser.set_defaults(func=sync_registry)
 
     url_parser = subparsers.add_parser("url", help="Print the raw GitHub URL for a package path.")
-    url_parser.add_argument("package", help="Relative file path in the GitHub repo. Append @version to resolve a specific tag or branch, e.g. text_search.py@v1.0.0, or @latest to resolve the newest released version from versions.tsv.")
+    url_parser.add_argument("package", help="Relative file path in the GitHub repo. Resolves the latest released version from versions.tsv by default (the branch HEAD if the script has no release). Append @version to pin a release, e.g. gh-ssh@1.0.1.")
     url_parser.set_defaults(func=print_url)
 
     config_parser = subparsers.add_parser("config", help="Print or update the active mys configuration.")
@@ -841,7 +884,7 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
         "version",
         nargs="?",
         default=None,
-        help="Version to update to, e.g. 1.0.0 or latest. Omit to use the default branch HEAD.",
+        help="Version to update to, e.g. 1.0.0. Omit to use the latest released version.",
     )
     self_update_parser.set_defaults(func=self_update)
 
@@ -853,6 +896,9 @@ def main() -> int:
     defaults = apply_environment_overrides(build_effective_config(config_path))
     parser = build_parser(defaults, config_path)
     args = parser.parse_args()
+    args.branch_explicit = args.branch is not None
+    if args.branch is None:
+        args.branch = defaults["branch"]
     args.config_path = args.config_path.expanduser()
     return args.func(args)
 

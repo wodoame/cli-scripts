@@ -101,14 +101,34 @@ def test_resolve_branch_for_package_variants(capsys) -> None:
     mys = load_mys()
     resolve_branch_for_package = mys["resolve_branch_for_package"]
 
-    assert resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", None) == "main"
+    # No version: latest release, unless the branch was chosen explicitly.
+    mys["resolve_branch_for_package"].__globals__["resolve_latest_version"] = (
+        lambda repo, branch, package, quiet=False: "1.0.1"
+    )
+    assert (
+        resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", None)
+        == "gh-ssh-1.0.1"
+    )
+    assert (
+        resolve_branch_for_package("wodoame/cli-scripts", "dev", "gh-ssh", None, False) == "dev"
+    )
+
+    # No version and no release: fall back to the branch HEAD without complaining.
+    mys["resolve_branch_for_package"].__globals__["resolve_latest_version"] = (
+        lambda repo, branch, package, quiet=False: None
+    )
+    assert (
+        resolve_branch_for_package("wodoame/cli-scripts", "main", "unreleased.py", None) == "main"
+    )
+    assert capsys.readouterr().err == ""
+
     assert (
         resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", "1.0.0")
         == "gh-ssh-1.0.0"
     )
 
     mys["resolve_branch_for_package"].__globals__["resolve_latest_version"] = (
-        lambda repo, branch, package: "1.0.1"
+        lambda repo, branch, package, quiet=False: "1.0.1"
     )
     assert (
         resolve_branch_for_package("wodoame/cli-scripts", "main", "gh-ssh", "latest")
@@ -116,7 +136,7 @@ def test_resolve_branch_for_package_variants(capsys) -> None:
     )
 
     mys["resolve_branch_for_package"].__globals__["resolve_latest_version"] = (
-        lambda repo, branch, package: None
+        lambda repo, branch, package, quiet=False: None
     )
     result = resolve_branch_for_package("wodoame/cli-scripts", "main", "unreleased.py", "latest")
     captured = capsys.readouterr()
@@ -158,6 +178,57 @@ def test_install_resolves_latest_version(tmp_path: Path) -> None:
             str(bin_dir / "gh-ssh"),
         ]
     )
+
+
+def test_install_without_version_resolves_latest_version(tmp_path: Path) -> None:
+    mys = load_mys()
+    registry_path = tmp_path / "registry.tsv"
+    bin_dir = tmp_path / "bin"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        package="gh-ssh",
+        keep_extension=False,
+        as_name=None,
+        bin_dir=bin_dir,
+        registry_path=registry_path,
+    )
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        if package == "versions.tsv":
+            return "mock", b"gh-ssh\t1.0.1\n"
+        assert branch == "gh-ssh-1.0.1"
+        return "mock", b"#!/usr/bin/env bash\necho hi\n"
+
+    mys["install_package"].__globals__["download_package"] = fake_download_package
+
+    assert mys["install_package"](args) == 0
+    assert registry_path.read_text(encoding="utf-8").split("\t")[3] == "gh-ssh-1.0.1"
+
+
+def test_install_with_explicit_branch_skips_latest_version(tmp_path: Path) -> None:
+    mys = load_mys()
+    registry_path = tmp_path / "registry.tsv"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="dev",
+        branch_explicit=True,
+        package="gh-ssh",
+        keep_extension=False,
+        as_name=None,
+        bin_dir=tmp_path / "bin",
+        registry_path=registry_path,
+    )
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        assert package != "versions.tsv"
+        assert branch == "dev"
+        return "mock", b"#!/usr/bin/env bash\necho hi\n"
+
+    mys["install_package"].__globals__["download_package"] = fake_download_package
+
+    assert mys["install_package"](args) == 0
+    assert registry_path.read_text(encoding="utf-8").split("\t")[3] == "dev"
 
 
 def test_install_latest_without_manifest_entry_fails(tmp_path: Path, capsys) -> None:
@@ -226,7 +297,7 @@ def test_self_update_resolves_latest_version(tmp_path: Path) -> None:
     assert (bin_dir / "mys").exists()
 
 
-def test_self_update_without_version_uses_default_branch(tmp_path: Path) -> None:
+def test_self_update_without_version_resolves_latest_version(tmp_path: Path) -> None:
     mys = load_mys()
     bin_dir = tmp_path / "bin"
     args = argparse.Namespace(
@@ -237,6 +308,32 @@ def test_self_update_without_version_uses_default_branch(tmp_path: Path) -> None
     )
 
     def fake_download_package(repo: str, branch: str, package: str):
+        if package == "versions.tsv":
+            return "mock", b"mys\t1.0.0\n"
+        assert branch == "mys-1.0.0"
+        return "mock", b"#!/usr/bin/env python3\nprint('hi')\n"
+
+    mys["self_update"].__globals__["download_package"] = fake_download_package
+
+    exit_code = mys["self_update"](args)
+
+    assert exit_code == 0
+    assert (bin_dir / "mys").exists()
+
+
+def test_self_update_with_explicit_branch_uses_that_branch(tmp_path: Path) -> None:
+    mys = load_mys()
+    bin_dir = tmp_path / "bin"
+    args = argparse.Namespace(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        branch_explicit=True,
+        bin_dir=bin_dir,
+        version=None,
+    )
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        assert package != "versions.tsv"
         assert branch == "main"
         return "mock", b"#!/usr/bin/env python3\nprint('hi')\n"
 
