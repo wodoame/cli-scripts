@@ -6,7 +6,8 @@ import argparse
 import contextlib
 import io
 import os
-import shutil 
+import re
+import shutil
 import stat
 import sys
 import tempfile
@@ -42,6 +43,10 @@ REGISTRY_FIELDS = ("command_name", "package_path", "repo", "branch", "install_pa
 CONFIG_FIELDS = ("repo", "branch", "bin_dir", "registry_path")
 VERSIONS_MANIFEST_PATH = "versions.tsv"
 LATEST_VERSION_KEYWORD = "latest"
+# A script declares the scripts it needs in a header comment, e.g.
+#   # mys-requires: gh-ssh, dirtree.py@1.0.0
+REQUIRES_PATTERN = re.compile(r"^\s*(?:#|//)\s*mys-requires:(.*)$")
+REQUIRES_HEADER_LINES = 30
 
 
 def get_default_home() -> Path:
@@ -183,6 +188,24 @@ def resolve_branch_for_package(
         version = resolved_version
 
     return build_version_tag(package, version)
+
+
+def parse_requires(content: bytes) -> list[str]:
+    """Return the package specs a script declares in its 'mys-requires:' header lines.
+
+    Only the first REQUIRES_HEADER_LINES lines are scanned. Specs are separated by
+    commas or whitespace and may carry an @version, e.g. 'gh-ssh, dirtree.py@1.0.0'.
+    """
+    specs: list[str] = []
+    text = content.decode("utf-8", errors="replace")
+    for line in text.splitlines()[:REQUIRES_HEADER_LINES]:
+        match = REQUIRES_PATTERN.match(line)
+        if match is None:
+            continue
+        for spec in re.split(r"[,\s]+", match.group(1).strip()):
+            if spec and not spec.startswith("@") and spec not in specs:
+                specs.append(spec)
+    return specs
 
 
 def ensure_shebang(content: bytes, package_path: str) -> bytes:
@@ -506,6 +529,132 @@ def uses_default_branch(args: argparse.Namespace) -> bool:
     return not getattr(args, "branch_explicit", False)
 
 
+def resolve_missing_dependencies(
+    repo: str,
+    branch: str,
+    default_to_latest: bool,
+    registry_path: Path,
+    package: str,
+    content: bytes,
+) -> list[dict[str, object]] | None:
+    """Download every dependency of a package that is not installed yet.
+
+    Follows 'mys-requires:' headers transitively. Nothing is written to disk, so a
+    failure here leaves the system untouched. Dependencies that are already installed
+    are left alone. Returns the dependencies to install, or None if one could not be
+    resolved.
+    """
+    registry = load_registry(registry_path)
+    installed = {
+        entry["package_path"]: entry
+        for entry in registry
+        if entry["repo"] == repo and Path(entry["install_path"]).expanduser().exists()
+    }
+    command_owners = {entry["command_name"]: entry for entry in registry}
+
+    plan: list[dict[str, object]] = []
+    seen = {package}
+    pending: list[tuple[str, bytes]] = [(package, content)]
+
+    while pending:
+        parent, parent_content = pending.pop(0)
+        for spec in parse_requires(parent_content):
+            dependency, version = parse_package_arg(spec)
+            if dependency in seen:
+                continue
+            seen.add(dependency)
+
+            existing = installed.get(dependency)
+            if existing is not None:
+                pinned = version not in (None, LATEST_VERSION_KEYWORD)
+                if pinned and existing["branch"] != build_version_tag(dependency, version):
+                    print(
+                        f"mys: {parent} requires {spec}, but {dependency} is already installed "
+                        f"from {existing['branch']}; leaving it as is",
+                        file=sys.stderr,
+                    )
+                continue
+
+            command_name = derive_command_name(dependency, keep_extension=False)
+            owner = command_owners.get(command_name)
+            if owner is not None and owner["package_path"] != dependency:
+                print(
+                    f"mys: cannot install {dependency}, required by {parent}: the command name "
+                    f"'{command_name}' is already used by {owner['package_path']}",
+                    file=sys.stderr,
+                )
+                return None
+
+            dependency_branch = resolve_branch_for_package(
+                repo, branch, dependency, version, default_to_latest
+            )
+            if dependency_branch is None:
+                return None
+
+            downloaded = download_package(repo, dependency_branch, dependency)
+            if downloaded is None:
+                print(f"mys: could not fetch {dependency}, required by {parent}", file=sys.stderr)
+                return None
+
+            _, dependency_content = downloaded
+            plan.append(
+                {
+                    "package_path": dependency,
+                    "command_name": command_name,
+                    "branch": dependency_branch,
+                    "content": dependency_content,
+                    "required_by": parent,
+                }
+            )
+            pending.append((dependency, dependency_content))
+
+    return plan
+
+
+def install_dependencies(
+    bin_dir: Path, registry_path: Path, repo: str, plan: list[dict[str, object]]
+) -> int:
+    for dependency in plan:
+        package_path = str(dependency["package_path"])
+        command_name = str(dependency["command_name"])
+        try:
+            destination = write_installed_file(
+                bin_dir, package_path, command_name, dependency["content"]
+            )
+        except PermissionError:
+            return print_install_permission_error(bin_dir / command_name)
+
+        upsert_registry_entry(
+            registry_path,
+            command_name,
+            package_path,
+            repo,
+            str(dependency["branch"]),
+            destination,
+        )
+        print(
+            f"Installed {package_path} as {destination} (required by {dependency['required_by']})"
+        )
+        check_interpreter(package_path)
+    return 0
+
+
+def find_dependents(registry_path: Path, entry: dict[str, str]) -> list[str]:
+    """Command names of installed scripts that declare a dependency on the given entry."""
+    dependents: list[str] = []
+    for other in load_registry(registry_path):
+        if other["command_name"] == entry["command_name"] or other["repo"] != entry["repo"]:
+            continue
+        try:
+            content = Path(other["install_path"]).expanduser().read_bytes()
+        except OSError:
+            continue
+        required = {parse_package_arg(spec)[0] for spec in parse_requires(content)}
+        if entry["package_path"] in required:
+            dependents.append(other["command_name"])
+    return dependents
+
+
 def install_package(args: argparse.Namespace) -> int:
     package, version = parse_package_arg(args.package)
     branch = resolve_branch_for_package(
@@ -522,6 +671,16 @@ def install_package(args: argparse.Namespace) -> int:
         return 1
 
     _, content = downloaded
+    dependencies = resolve_missing_dependencies(
+        args.repo, args.branch, uses_default_branch(args), args.registry_path, package, content
+    )
+    if dependencies is None:
+        return 1
+    if error_code := install_dependencies(
+        args.bin_dir, args.registry_path, args.repo, dependencies
+    ):
+        return error_code
+
     try:
         destination = write_installed_file(args.bin_dir, package, command_name, content)
     except PermissionError:
@@ -566,6 +725,15 @@ def update_package(args: argparse.Namespace) -> int:
         return 1
 
     _, content = downloaded
+    dependencies = resolve_missing_dependencies(
+        args.repo, args.branch, uses_default_branch(args), args.registry_path, package, content
+    )
+    if dependencies is None:
+        return 1
+    if error_code := install_dependencies(
+        args.bin_dir, args.registry_path, args.repo, dependencies
+    ):
+        return error_code
 
     try:
         write_installed_file(args.bin_dir, package, command_name, content)
@@ -597,6 +765,15 @@ def remove_package(args: argparse.Namespace) -> int:
     destination = args.bin_dir / args.name
     if not destination.exists():
         print(f"mys: {destination} does not exist", file=sys.stderr)
+        return 1
+
+    dependents = find_dependents(args.registry_path, entry)
+    if dependents and not getattr(args, "force", False):
+        print(
+            f"mys: {args.name} is required by {', '.join(dependents)}; "
+            "remove those first or pass --force",
+            file=sys.stderr,
+        )
         return 1
 
     destination.unlink()
@@ -664,6 +841,7 @@ def sync_registry(args: argparse.Namespace) -> int:
         print("No packages installed by mys.")
         return 0
 
+    restored: list[tuple[dict[str, str], Path, bytes]] = []
     for entry in entries:
         install_path = Path(entry["install_path"]).expanduser()
         if error_code := ensure_bin_dir_writable(install_path.parent, entry["command_name"]):
@@ -694,6 +872,24 @@ def sync_registry(args: argparse.Namespace) -> int:
         )
         print(f"Synced {entry['command_name']} to {install_path}")
         check_interpreter(entry["package_path"])
+        restored.append((entry, install_path, content))
+
+    # Once every tracked command is back, add any dependency the registry is missing.
+    for entry, install_path, content in restored:
+        dependencies = resolve_missing_dependencies(
+            entry["repo"],
+            args.branch,
+            uses_default_branch(args),
+            args.registry_path,
+            entry["package_path"],
+            content,
+        )
+        if dependencies is None:
+            return 1
+        if error_code := install_dependencies(
+            install_path.parent, args.registry_path, entry["repo"], dependencies
+        ):
+            return error_code
 
     return 0
 
@@ -707,6 +903,43 @@ def print_url(args: argparse.Namespace) -> int:
         return 1
     print(build_raw_url(args.repo, branch, package))
     return 0
+
+
+def print_dependencies(args: argparse.Namespace) -> int:
+    """Print the dependency tree of a package, resolved against the repo."""
+    installed = {
+        entry["package_path"]
+        for entry in load_registry(args.registry_path)
+        if entry["repo"] == args.repo and Path(entry["install_path"]).expanduser().exists()
+    }
+    default_to_latest = uses_default_branch(args)
+
+    def print_tree(spec: str, depth: int, ancestors: tuple[str, ...]) -> int:
+        package, version = parse_package_arg(spec)
+        indent = "  " * depth
+        if package in ancestors:
+            print(f"{indent}{package} (dependency cycle)")
+            return 0
+
+        branch = resolve_branch_for_package(
+            args.repo, args.branch, package, version, default_to_latest
+        )
+        if branch is None:
+            return 1
+        downloaded = download_package(args.repo, branch, package)
+        if downloaded is None:
+            return 1
+
+        marker = " [installed]" if package in installed else ""
+        print(f"{indent}{package} ({branch}){marker}")
+
+        _, content = downloaded
+        for child in parse_requires(content):
+            if error_code := print_tree(child, depth + 1, ancestors + (package,)):
+                return error_code
+        return 0
+
+    return print_tree(args.package, 0, ())
 
 
 def print_config(args: argparse.Namespace) -> int:
@@ -804,7 +1037,9 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    install_parser = subparsers.add_parser("install", help="Download and install a script.")
+    install_parser = subparsers.add_parser(
+        "install", help="Download and install a script and the scripts it requires."
+    )
     install_parser.add_argument(
         "package",
         help="Relative file path in the GitHub repo, e.g. text_search.py or linux/dirtree.py. Installs the latest released version from versions.tsv by default (the branch HEAD if the script has no release). Append @version to pin a release, e.g. gh-ssh@1.0.1.",
@@ -832,6 +1067,11 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
 
     remove_parser = subparsers.add_parser("remove", help="Remove an installed command.")
     remove_parser.add_argument("name", help="Installed command name in the target bin directory.")
+    remove_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Remove the command even if another installed script requires it.",
+    )
     remove_parser.set_defaults(func=remove_package)
 
     list_parser = subparsers.add_parser("list", help="List commands tracked by mys.")
@@ -861,6 +1101,15 @@ def build_parser(defaults: dict[str, str], default_config_path: Path) -> argpars
     url_parser = subparsers.add_parser("url", help="Print the raw GitHub URL for a package path.")
     url_parser.add_argument("package", help="Relative file path in the GitHub repo. Resolves the latest released version from versions.tsv by default (the branch HEAD if the script has no release). Append @version to pin a release, e.g. gh-ssh@1.0.1.")
     url_parser.set_defaults(func=print_url)
+
+    deps_parser = subparsers.add_parser(
+        "deps", help="Print the dependency tree a package declares with 'mys-requires:'."
+    )
+    deps_parser.add_argument(
+        "package",
+        help="Relative file path in the GitHub repo. Append @version to inspect a specific release.",
+    )
+    deps_parser.set_defaults(func=print_dependencies)
 
     config_parser = subparsers.add_parser("config", help="Print or update the active mys configuration.")
     config_parser.add_argument("--repo", dest="config_repo", help="Persist a default GitHub repo.")

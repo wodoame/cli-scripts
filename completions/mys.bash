@@ -38,11 +38,12 @@ _mys() {
 
     # ── constants ─────────────────────────────────────────────────────────────
 
-    local -r COMMANDS='install update remove list export import sync url config self-update'
+    local -r COMMANDS='install update remove list export import sync url deps config self-update'
     local -r GLOBAL_FLAGS='--repo --branch --bin-dir --registry-path --config-path'
     local -r FLAGS_INSTALL='--as --keep-extension'
     local -r FLAGS_UPDATE='--as --keep-extension'
     local -r FLAGS_IMPORT='--replace'
+    local -r FLAGS_REMOVE='--force'
     local -r FLAGS_CONFIG='--repo --branch --bin-dir --registry-path'
 
     # ── detect current command ────────────────────────────────────────────────
@@ -54,7 +55,7 @@ _mys() {
             --repo|--branch|--bin-dir|--registry-path|--config-path|--as)
                 (( i++ ))
                 ;;
-            --keep-extension|--replace)
+            --keep-extension|--replace|--force)
                 ;;
             -*)
                 ;;
@@ -86,6 +87,7 @@ _mys() {
             install)   COMPREPLY=( $(compgen -W "$FLAGS_INSTALL $GLOBAL_FLAGS" -- "$cur") ) ;;
             update)    COMPREPLY=( $(compgen -W "$FLAGS_UPDATE  $GLOBAL_FLAGS" -- "$cur") ) ;;
             import)    COMPREPLY=( $(compgen -W "$FLAGS_IMPORT  $GLOBAL_FLAGS" -- "$cur") ) ;;
+            remove)    COMPREPLY=( $(compgen -W "$FLAGS_REMOVE  $GLOBAL_FLAGS" -- "$cur") ) ;;
             config)    COMPREPLY=( $(compgen -W "$FLAGS_CONFIG  $GLOBAL_FLAGS" -- "$cur") ) ;;
             *)         COMPREPLY=( $(compgen -W "$GLOBAL_FLAGS" -- "$cur") ) ;;
         esac
@@ -112,7 +114,7 @@ _mys() {
 
     case "$cmd" in
 
-        install|update|url)
+        install|update|url|deps)
             # Complete local .py/.sh/.mjs files and directories.
             local IFS=$'\n'
             local -a matches filtered=()

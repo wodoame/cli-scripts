@@ -479,3 +479,241 @@ def test_install_permission_error_is_friendly(tmp_path: Path, capsys) -> None:
     assert exit_code == 1
     assert "permission denied while writing" in captured.err
     assert "traceback" not in captured.err.lower()
+
+
+# --- dependencies ("mys-requires:" headers) ---------------------------------
+
+
+def make_repo_download(files: dict[str, bytes], calls: list[tuple[str, str]] | None = None):
+    """Fake download_package serving files from a dict keyed by package path."""
+
+    def fake_download_package(repo: str, branch: str, package: str):
+        if calls is not None:
+            calls.append((branch, package))
+        if package not in files:
+            return None
+        return "mock", files[package]
+
+    return fake_download_package
+
+
+def install_args(tmp_path: Path, package: str, **overrides) -> argparse.Namespace:
+    values = dict(
+        repo="wodoame/cli-scripts",
+        branch="main",
+        package=package,
+        keep_extension=False,
+        as_name=None,
+        bin_dir=tmp_path / "bin",
+        registry_path=tmp_path / "registry.tsv",
+    )
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def registry_rows(registry_path: Path) -> dict[str, list[str]]:
+    rows = [line.split("\t") for line in registry_path.read_text(encoding="utf-8").splitlines()]
+    return {row[0]: row for row in rows}
+
+
+def test_parse_requires_reads_header_comments() -> None:
+    parse_requires = load_mys()["parse_requires"]
+
+    assert parse_requires(b"#!/usr/bin/env bash\n# mys-requires: gh-ssh, dirtree.py@1.0.0\n") == [
+        "gh-ssh",
+        "dirtree.py@1.0.0",
+    ]
+    assert parse_requires(b"// mys-requires: a.mjs b.mjs\n#mys-requires: a.mjs, c.sh\n") == [
+        "a.mjs",
+        "b.mjs",
+        "c.sh",
+    ]
+    assert parse_requires(b"echo '# mys-requires: nope'\nx = 1\n") == []
+    assert parse_requires(b"\n" * 40 + b"# mys-requires: too-late\n") == []
+    assert parse_requires(b"# mys-requires:\n") == []
+
+
+def test_install_installs_transitive_dependencies(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    args = install_args(tmp_path, "app.sh")
+    files = {
+        "versions.tsv": b"lib.sh\t2.0.0\n",
+        "app.sh": b"#!/usr/bin/env bash\n# mys-requires: lib.sh, helper.py@1.2.0\necho app\n",
+        "lib.sh": b"#!/usr/bin/env bash\n# mys-requires: base.sh\necho lib\n",
+        "helper.py": b"print('helper')\n",
+        # A cycle back to the root must not loop forever.
+        "base.sh": b"#!/usr/bin/env bash\n# mys-requires: app.sh\necho base\n",
+    }
+    mys["install_package"].__globals__["download_package"] = make_repo_download(files)
+
+    exit_code = mys["install_package"](args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    rows = registry_rows(args.registry_path)
+    assert {name: row[3] for name, row in rows.items()} == {
+        "app": "main",
+        "lib": "lib.sh-2.0.0",
+        "helper": "helper.py-1.2.0",
+        "base": "main",
+    }
+    for name in rows:
+        assert (args.bin_dir / name).exists()
+    assert "(required by app.sh)" in captured.out
+    assert "(required by lib.sh)" in captured.out
+
+
+def test_install_leaves_installed_dependency_alone(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    calls: list[tuple[str, str]] = []
+    files = {
+        "app.sh": b"# mys-requires: lib.sh@2.0.0\necho app\n",
+        "lib.sh": b"echo lib\n",
+    }
+    mys["install_package"].__globals__["download_package"] = make_repo_download(files, calls)
+
+    assert mys["install_package"](install_args(tmp_path, "lib.sh@1.0.0")) == 0
+    calls.clear()
+    assert mys["install_package"](install_args(tmp_path, "app.sh")) == 0
+    captured = capsys.readouterr()
+
+    assert registry_rows(tmp_path / "registry.tsv")["lib"][3] == "lib.sh-1.0.0"
+    assert all(package != "lib.sh" for _, package in calls)
+    assert "already installed from lib.sh-1.0.0" in captured.err
+
+
+def test_install_writes_nothing_when_a_dependency_is_missing(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    args = install_args(tmp_path, "app.sh")
+    files = {
+        "app.sh": b"# mys-requires: lib.sh, missing.sh\necho app\n",
+        "lib.sh": b"echo lib\n",
+    }
+    mys["install_package"].__globals__["download_package"] = make_repo_download(files)
+
+    exit_code = mys["install_package"](args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "could not fetch missing.sh, required by app.sh" in captured.err
+    assert not args.registry_path.exists()
+    assert not (args.bin_dir / "app").exists()
+    assert not (args.bin_dir / "lib").exists()
+
+
+def test_install_refuses_dependency_whose_command_name_is_taken(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    files = {
+        "tools/lib.py": b"print('other lib')\n",
+        "app.sh": b"# mys-requires: lib.sh\necho app\n",
+        "lib.sh": b"echo lib\n",
+    }
+    mys["install_package"].__globals__["download_package"] = make_repo_download(files)
+
+    assert mys["install_package"](install_args(tmp_path, "tools/lib.py")) == 0
+    exit_code = mys["install_package"](install_args(tmp_path, "app.sh"))
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "'lib' is already used by tools/lib.py" in captured.err
+    assert not (tmp_path / "bin" / "app").exists()
+
+
+def test_update_installs_newly_declared_dependencies(tmp_path: Path) -> None:
+    mys = load_mys()
+    args = install_args(tmp_path, "app.sh")
+    files = {"app.sh": b"echo app\n", "lib.sh": b"echo lib\n"}
+    mys["install_package"].__globals__["download_package"] = make_repo_download(files)
+    assert mys["install_package"](args) == 0
+    assert set(registry_rows(args.registry_path)) == {"app"}
+
+    files["app.sh"] = b"# mys-requires: lib.sh\necho app v2\n"
+    assert mys["update_package"](args) == 0
+
+    assert set(registry_rows(args.registry_path)) == {"app", "lib"}
+    assert (args.bin_dir / "lib").exists()
+
+
+def test_sync_installs_dependencies_missing_from_registry(tmp_path: Path) -> None:
+    mys = load_mys()
+    bin_dir = tmp_path / "bin"
+    registry_path = tmp_path / "registry.tsv"
+    registry_path.write_text(
+        "\t".join(["app", "app.sh", "wodoame/cli-scripts", "main", str(bin_dir / "app")]) + "\n",
+        encoding="utf-8",
+    )
+    files = {
+        "app.sh": b"# mys-requires: lib.sh\necho app\n",
+        "lib.sh": b"echo lib\n",
+    }
+    mys["sync_registry"].__globals__["download_package"] = make_repo_download(files)
+
+    exit_code = mys["sync_registry"](
+        argparse.Namespace(branch="main", registry_path=registry_path)
+    )
+
+    assert exit_code == 0
+    assert set(registry_rows(registry_path)) == {"app", "lib"}
+    assert (bin_dir / "lib").exists()
+
+
+def test_remove_refuses_required_command_unless_forced(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    args = install_args(tmp_path, "app.sh")
+    files = {
+        "app.sh": b"# mys-requires: lib.sh\necho app\n",
+        "lib.sh": b"echo lib\n",
+    }
+    mys["install_package"].__globals__["download_package"] = make_repo_download(files)
+    assert mys["install_package"](args) == 0
+
+    remove_args = argparse.Namespace(
+        name="lib", bin_dir=args.bin_dir, registry_path=args.registry_path, force=False
+    )
+    assert mys["remove_package"](remove_args) == 1
+    assert "lib is required by app" in capsys.readouterr().err
+    assert (args.bin_dir / "lib").exists()
+
+    remove_args.force = True
+    assert mys["remove_package"](remove_args) == 0
+    assert not (args.bin_dir / "lib").exists()
+    assert set(registry_rows(args.registry_path)) == {"app"}
+
+
+def test_deps_prints_resolved_tree(tmp_path: Path, capsys) -> None:
+    mys = load_mys()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "helper").write_text("print('helper')\n", encoding="utf-8")
+    registry_path = tmp_path / "registry.tsv"
+    registry_path.write_text(
+        "\t".join(
+            ["helper", "helper.py", "wodoame/cli-scripts", "main", str(bin_dir / "helper")]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    files = {
+        "versions.tsv": b"app.sh\t1.0.0\nlib.sh\t2.0.0\n",
+        "app.sh": b"# mys-requires: lib.sh, helper.py\necho app\n",
+        "lib.sh": b"# mys-requires: app.sh\necho lib\n",
+        "helper.py": b"print('helper')\n",
+    }
+    mys["print_dependencies"].__globals__["download_package"] = make_repo_download(files)
+
+    exit_code = mys["print_dependencies"](
+        argparse.Namespace(
+            repo="wodoame/cli-scripts",
+            branch="main",
+            package="app.sh",
+            registry_path=registry_path,
+        )
+    )
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "app.sh (app.sh-1.0.0)",
+        "  lib.sh (lib.sh-2.0.0)",
+        "    app.sh (dependency cycle)",
+        "  helper.py (main) [installed]",
+    ]

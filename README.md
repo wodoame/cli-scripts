@@ -125,6 +125,7 @@ Examples:
 mys install gh-ssh
 mys update gh-ssh
 mys install dirtree.py --as dirtree-cli
+mys deps gh-ssh
 mys list
 mys export mys-registry.tsv
 mys import mys-registry.tsv
@@ -204,6 +205,48 @@ a specific release, or `--branch` to update from a branch HEAD:
 mys self-update
 mys self-update 1.0.0
 mys --branch main self-update
+```
+
+## Dependencies
+
+A script declares the other scripts it needs in a header comment, within its first 30 lines:
+
+```bash
+#!/usr/bin/env bash
+# mys-requires: gh-ssh, dirtree.py@1.0.0
+```
+
+Each entry is a package path, as you would pass to `mys install`. A bare path means the latest
+released version and `@version` pins one. Entries are separated by commas or spaces, and the
+line can be repeated. Use `//` instead of `#` in `.mjs` scripts. Dependencies come from the
+same repo as the script that declares them.
+
+`mys install` reads the header after downloading a script and installs every dependency that
+is not installed yet, following the dependencies of dependencies too:
+
+```bash
+mys install app.sh
+# Installed lib.sh as /usr/local/bin/lib (required by app.sh)
+# Installed app.sh as /usr/local/bin/app
+```
+
+- Everything is downloaded before anything is written, so if one dependency cannot be fetched
+  nothing is installed.
+- A dependency that is already installed is left alone, even if the header asks for a
+  different version; `mys` prints a note in that case.
+- Dependencies are installed under their default command name, into the same directory as
+  the script that needs them, and are tracked in the registry like any other install.
+- `mys update` and `mys sync` also install dependencies that are missing, but never update
+  ones that are already there.
+- `mys remove` refuses to remove a command that another installed script requires. Pass
+  `--force` to remove it anyway. Removing a script does not remove its dependencies.
+
+Print the dependency tree of a package, with the ref each one resolves to:
+
+```bash
+mys deps app.sh
+# app.sh (app.sh-1.0.0)
+#   lib.sh (lib.sh-2.0.0) [installed]
 ```
 
 ## Registry Format
