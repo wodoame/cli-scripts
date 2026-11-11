@@ -45,8 +45,19 @@ example `gh-ssh` or `linux/dirtree.py`. It is what users pass to `mys install`.
   | anything else, or none | — | Left untouched, so the file must start with its own `#!` line |
 
 - **A sensible file name.** The installed command is the file name with a `.py`, `.sh` or
-  `.mjs` extension removed: `tools/text_search.py` installs as `text_search`. Two scripts
-  that reduce to the same command name collide, so keep names unique across the repo.
+  `.mjs` extension removed: `tools/text_search.py` installs as `text_search`. Unique command
+  names across the repo are recommended, because two scripts that reduce to the same name
+  (say `lint.py` and `tools/lint.sh`) overwrite each other by default. They are not strictly
+  required: a user can install one under another name with `--as`, or keep the extension
+  with `--keep-extension`:
+
+  ```bash
+  mys --repo owner/name install tools/lint.sh --as lint-shell
+  ```
+
+  The exception is a script that other scripts list as a
+  [dependency](#3-dependencies-optional). Dependencies are always installed under their
+  default command name, so that name does need to be unique.
 - **No `@` in the path.** `mys` treats everything after `@` as a version.
 
 `mys` marks the installed file executable, so the file mode in the repo does not matter.
@@ -195,7 +206,11 @@ Required:
 - [ ] The default branch is `main`, or users are told to run `mys config --branch <name>`.
 - [ ] Each script is a single file that runs on its own.
 - [ ] Each script ends in `.py`, `.sh` or `.mjs`, or starts with its own `#!` line.
-- [ ] No two scripts reduce to the same command name.
+
+Recommended:
+
+- [ ] No two scripts reduce to the same command name. Where they do, users can install one
+      with `--as`, but a script used as a dependency must keep a unique name.
 
 For versions:
 
