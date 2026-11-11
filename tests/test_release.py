@@ -186,3 +186,25 @@ def test_no_changelog_flag_releases_without_touching_the_changelog(repo: Path) -
     assert result.returncode == 0, result.stderr
     assert git(repo, "tag") == "tool.sh-1.0.1"
     assert not (repo / "changelogs" / "tool.sh.md").exists()
+
+
+def test_message_flag_sets_the_release_commit_message(repo: Path) -> None:
+    result = release(repo, "--no-push", "-m", "release: tool.sh 1.0.1", "tool.sh", "patch")
+
+    assert result.returncode == 0, result.stderr
+    assert "commit: release: tool.sh 1.0.1" in result.stdout
+    assert git(repo, "log", "-1", "--format=%s") == "release: tool.sh 1.0.1"
+    assert git(repo, "tag", "--points-at", "HEAD") == "tool.sh-1.0.1"
+
+    result = release(repo, "--no-push", "--message=Cut tool.py\n\nWith a body.", "tool.py", "patch")
+
+    assert result.returncode == 0, result.stderr
+    assert git(repo, "log", "-1", "--format=%B") == "Cut tool.py\n\nWith a body."
+
+
+def test_message_flag_needs_a_value(repo: Path) -> None:
+    for args in (["tool.sh", "patch", "-m"], ["-m", "  ", "tool.sh", "patch"]):
+        result = release(repo, "--no-push", *args)
+        assert result.returncode == 1
+        assert "commit message" in result.stderr
+    assert git(repo, "tag") == ""

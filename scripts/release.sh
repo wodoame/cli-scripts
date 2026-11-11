@@ -35,12 +35,15 @@ Options:
   -n, --dry-run      Show what would happen without changing anything
       --no-push      Commit and tag locally, but do not push
       --no-changelog Release without changelog notes, leaving the changelog as is
+  -m, --message MSG  Commit message for the release commit
+                     (default: "chore: release <package> <version>")
   -h, --help         Show this help and exit
 
 Examples:
   $SCRIPT_NAME gh-ssh patch
   $SCRIPT_NAME mys 1.2.0
   $SCRIPT_NAME --dry-run dirtree.py minor
+  $SCRIPT_NAME -m "release: gh-ssh 1.0.2" gh-ssh patch
 EOF
 }
 
@@ -52,6 +55,7 @@ die() {
 dry_run=false
 push=true
 changelog=true
+message=""
 positional=()
 
 while [[ $# -gt 0 ]]; do
@@ -59,6 +63,16 @@ while [[ $# -gt 0 ]]; do
   -n | --dry-run) dry_run=true ;;
   --no-push) push=false ;;
   --no-changelog) changelog=false ;;
+  -m | --message)
+    [[ $# -ge 2 ]] || die "$1 needs a commit message"
+    message="$2"
+    [[ "$message" =~ [^[:space:]] ]] || die "$1 needs a non-empty commit message"
+    shift
+    ;;
+  --message=*)
+    message="${1#--message=}"
+    [[ "$message" =~ [^[:space:]] ]] || die "--message needs a non-empty commit message"
+    ;;
   -h | --help)
     usage
     exit 0
@@ -122,6 +136,7 @@ major | minor | patch)
 esac
 
 tag="$package-$new_version"
+commit_message="${message:-chore: release $package $new_version}"
 
 # --- Validate the repo state --------------------------------------------------
 
@@ -191,7 +206,7 @@ if $changelog; then
 else
   echo "  changelog: skipped (--no-changelog)"
 fi
-echo "  commit: chore: release $package $new_version"
+echo "  commit: ${commit_message%%$'\n'*}"
 echo "  tag:    $tag"
 if $push; then
   echo "  push:   $branch and $tag to $REMOTE"
@@ -255,7 +270,7 @@ if $changelog; then
 fi
 
 git add -- "$package" "$MANIFEST"
-git commit --quiet -m "chore: release $package $new_version"
+git commit --quiet -m "$commit_message"
 git tag "$tag"
 echo "Committed and tagged $tag"
 

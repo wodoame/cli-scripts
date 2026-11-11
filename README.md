@@ -229,7 +229,12 @@ It refuses to run with uncommitted changes, an existing tag, a branch that is be
 remote, or nothing under `## Unreleased`.
 
 Use `--dry-run` to see what a release would do, `--no-push` to commit and tag locally without
-pushing, or `--no-changelog` to release without changelog notes.
+pushing, or `--no-changelog` to release without changelog notes. Pass `-m` to replace the
+default commit message:
+
+```bash
+scripts/release.sh -m "release: gh-ssh 1.0.2" gh-ssh patch
+```
 
 `mys` itself is versioned the same way. Check the installed version with:
 
