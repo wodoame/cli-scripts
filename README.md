@@ -13,6 +13,8 @@ This repo contains small personal CLI utilities and setup scripts.
 
 `mys` is a small personal package manager for this repo. It installs and updates one script at a time from GitHub into `/usr/local/bin`, and tracks its installs in a local TSV registry that acts as the source of truth.
 
+`mys` can also install from other GitHub repos with `--repo owner/name`. See [docs/mys-compatible-repos.md](docs/mys-compatible-repos.md) for what a repo must provide to work with it.
+
 ## Installation
 
 > **Note:** `mys` relies on standard library features and requires **Python 3.8+** to be installed on your system.
